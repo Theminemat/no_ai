@@ -35,11 +35,15 @@ class GyroSensor:
     """
     def __init__(self, bus=1, address=0x68):
         if HAS_MPU:
+            print("INFO: MPU6050 library found.")
             try:
-                self.dev = mpu6050(address)
-            except Exception:
+                self.dev = mpu6050(address, bus)
+                print("INFO: MPU6050 device initialized successfully.")
+            except Exception as e:
+                print(f"ERROR: Failed to initialize MPU6050 on bus {bus} at address {hex(address)}: {e}")
                 self.dev = None
         else:
+            print("WARNING: MPU6050 library not found. Using mock sensor.")
             self.dev = None
 
     def get_gyro_z(self):
