@@ -324,10 +324,6 @@ def ecken_handling_sequence():
     try:
         speed = 0.6
 
-        # record the heading when this sequence begins (used for final rotation)
-        course_heading = tracker_z.get_heading()
-        start_heading = course_heading
-
         # forward: set left/right motors forward
         def forward(s):
             motors.set_motor('front_left', s)
@@ -376,12 +372,9 @@ def ecken_handling_sequence():
             motors.stop_all()
             return True
 
-        # small helper: shortest signed difference b - a in degrees (-180, 180]
-        def shortest_angle_diff(a, b):
-            d = (b - a + 180.0) % 360.0 - 180.0
-            return d
-
         # heading control: set the target course to current tracker heading
+        course_heading = tracker_z.get_heading()
+
         def set_course_to_current():
             nonlocal course_heading
             try:
@@ -406,49 +399,61 @@ def ecken_handling_sequence():
             motors.set_motor('back_left', left)
             motors.set_motor('front_right', right)
             motors.set_motor('back_right', right)
-
-        # 1) Drive forward until front sensor sees <=5cm
-        # drive forward while holding the current course; check front sensor each cycle
-        course_heading = start_heading
+        # Repeat the whole sequence until stopped: drive forward until obstacle,
+        # execute the corner maneuver, rotate to the new course, then continue driving.
         while True:
             if _stop_event.is_set():
                 motors.stop_all()
                 return
-            d = sensor_front.get_distance_cm()
-            if d is not None and d <= 5.0:
-                break
-            apply_heading_hold(speed, kp=0.04)
-            time.sleep(0.05)
 
-        # brief stop before executing the three-step maneuver
-        motors.stop_all()
-        time.sleep(0.1)
+            # record the heading when this sequence iteration begins
+            start_heading = tracker_z.get_heading()
+            course_heading = start_heading
 
-        # 2) rotate clockwise 1s
-        rotate_clockwise(speed)
-        start = time.time()
-        while time.time() - start < 1.0:
-            if _stop_event.is_set():
-                motors.stop_all()
-                return
-            time.sleep(0.02)
-        motors.stop_all()
-        time.sleep(0.1)
+            # 1) Drive forward until front sensor sees <=5cm
+            while True:
+                if _stop_event.is_set():
+                    motors.stop_all()
+                    return
+                d = sensor_front.get_distance_cm()
+                if d is not None and d <= 5.0:
+                    break
+                apply_heading_hold(speed, kp=0.04)
+                time.sleep(0.05)
 
-        # 3) backward 1s
-        forward(-speed)
-        start = time.time()
-        while time.time() - start < 1.0:
-            if _stop_event.is_set():
-                motors.stop_all()
-                return
-            time.sleep(0.02)
-        motors.stop_all()
-        time.sleep(0.1)
+            # brief stop before executing the three-step maneuver
+            motors.stop_all()
+            time.sleep(0.1)
 
-        # 4) rotate to absolute heading (start_heading - 90°)
-        target = (start_heading - 90.0) % 360.0
-        rotate_towards_target(target, rot_speed=0.4, tol_deg=5.0, timeout=5.0)
+            # 2) rotate clockwise 1s
+            rotate_clockwise(speed)
+            start = time.time()
+            while time.time() - start < 1.0:
+                if _stop_event.is_set():
+                    motors.stop_all()
+                    return
+                time.sleep(0.02)
+            motors.stop_all()
+            time.sleep(0.1)
+
+            # 3) backward 1s
+            forward(-speed)
+            start = time.time()
+            while time.time() - start < 1.0:
+                if _stop_event.is_set():
+                    motors.stop_all()
+                    return
+                time.sleep(0.02)
+            motors.stop_all()
+            time.sleep(0.1)
+
+            # 4) rotate to absolute heading (start_heading - 90°)
+            target = (start_heading - 90.0) % 360.0
+            rotate_towards_target(target, rot_speed=0.4, tol_deg=5.0, timeout=5.0)
+
+            # After the final rotation, continue the outer loop to drive forward again
+            # Give a short pause to let motors/heading settle before resuming
+            time.sleep(0.15)
     finally:
         motors.stop_all()
 
