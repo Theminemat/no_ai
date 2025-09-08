@@ -166,7 +166,7 @@ class HeadingTracker:
     """Integrate gyro z-rate to produce a heading in degrees within [0, 360).
     Supports reset() to declare the current heading as 0.
     """
-    def __init__(self, gyro_sensor, poll_interval=0.05, sign=1, axis='z', min_rate_thresh=0.5):
+    def __init__(self, gyro_sensor, poll_interval=0.05, sign=1, axis='z', min_rate_thresh=0.5, drift_correction_dps=-0.1):
         self.gyro = gyro_sensor
         self.poll = poll_interval
         self._raw = 0.0
@@ -180,6 +180,9 @@ class HeadingTracker:
         self._lock = threading.Lock()
         self._running = False
         self._thread = None
+    # apply a small constant correction (deg/s) to counteract slow gyro drift
+    # default is -0.1 deg/s (subtract 0.1 degrees every second)
+    self.drift_correction_dps = float(drift_correction_dps)
 
     def start(self):
         if self._running:
@@ -222,8 +225,10 @@ class HeadingTracker:
 
             # apply configurable sign so sensor wrapper stays untouched
             delta = (self.sign * rate) * dt
+            # small constant drift correction (deg/s * dt)
+            correction_delta = (self.drift_correction_dps) * dt
             with self._lock:
-                self._raw = fmod((self._raw + delta), 360.0)
+                self._raw = fmod((self._raw + delta + correction_delta), 360.0)
                 if self._raw < 0:
                     self._raw += 360.0
             time.sleep(max(0.0, self.poll - 0.0))
@@ -402,16 +407,15 @@ def ecken_handling_sequence():
         motors.stop_all()
         time.sleep(0.1)
 
-        # 5) rotate to heading -90 relative to current (i.e. target = h - 90)
-        current = tracker_z.get_heading()
-        target = (current - 90.0) % 360.0
+        # 5) rotate to absolute heading 90°; use the opposite rotation direction
+        target = 90.0
 
-        # rotate until within 5 degrees of target
+        # helper: shortest signed difference b - a in degrees (-180, 180]
         def shortest_angle_diff(a, b):
             d = (b - a + 180.0) % 360.0 - 180.0
             return d
 
-        # rotate towards target using gyro heading feedback
+        # rotate towards absolute 90°, but force the opposite direction compared to shortest-path
         max_timeout = 5.0
         start_t = time.time()
         while True:
@@ -420,14 +424,14 @@ def ecken_handling_sequence():
                 return
             h = tracker_z.get_heading()
             diff = shortest_angle_diff(h, target)
+            # stop once we are close enough to 90° (tolerance 5°)
             if abs(diff) <= 5.0:
                 break
-            # if diff > 0 -> need to rotate CCW, else CW (based on heading convention)
+            # invert rotation direction: if diff > 0 we would normally rotate CCW, so we rotate CW
             if diff > 0:
-                # rotate CCW small
-                rotate_ccw(0.4)
-            else:
                 rotate_clockwise(0.4)
+            else:
+                rotate_ccw(0.4)
             time.sleep(0.05)
             motors.stop_all()
             if time.time() - start_t > max_timeout:
