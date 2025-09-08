@@ -231,14 +231,9 @@ sensor_front = UltrasonicSensor(trig_pin=15, echo_pin=14)  # front TRIG=BCM15, E
 sensor_right = UltrasonicSensor(trig_pin=23, echo_pin=24)  # right TRIG=BCM23, ECHO=BCM24
 
 # Invert gyro sign to match physical orientation of the sensor.
-# Create a HeadingTracker per axis so we can test integration on x/y/z independently.
-trackers = {
-    'x': HeadingTracker(gyro, sign=-1, axis='x'),
-    'y': HeadingTracker(gyro, sign=-1, axis='y'),
-    'z': HeadingTracker(gyro, sign=-1, axis='z'),
-}
-for t in trackers.values():
-    t.start()
+# Keep only a single HeadingTracker for the Z axis (heading) as requested.
+tracker_z = HeadingTracker(gyro, sign=-1, axis='z')
+tracker_z.start()
 
 # Log sensor modes so it's obvious on startup whether real GPIO is used
 print(f'INFO: sensor_front mock={sensor_front.mock}, sensor_right mock={sensor_right.mock}, HAS_GPIO={HAS_GPIO}, HAS_MPU={HAS_MPU}')
@@ -274,10 +269,8 @@ def api_status():
     except Exception:
         gz = None
 
-    # collect headings per axis from their trackers
-    hx = trackers['x'].get_heading()
-    hy = trackers['y'].get_heading()
-    hz = trackers['z'].get_heading()
+    # collect heading (Z axis) from the tracker
+    hz = tracker_z.get_heading()
 
     return jsonify({
         'distance_front_cm': None if front is None else round(front, 1),
@@ -285,25 +278,18 @@ def api_status():
     'front_is_mock': bool(sensor_front.mock),
     'right_is_mock': bool(sensor_right.mock),
     'timestamp': int(time.time()),
-        'gyro_rate_x_dps': None if gx is None else round(gx, 2),
-        'gyro_rate_y_dps': None if gy is None else round(gy, 2),
-        'gyro_rate_z_dps': None if gz is None else round(gz, 2),
-        'gyro_is_mock': bool(gyro.dev is None),
-        # rotation directions per axis
-        'rotation_dir_x': (None if gx is None else ('CW' if (trackers['x'].sign * gx) > 0 else ('CCW' if (trackers['x'].sign * gx) < 0 else 'stopped'))),
-        'rotation_dir_y': (None if gy is None else ('CW' if (trackers['y'].sign * gy) > 0 else ('CCW' if (trackers['y'].sign * gy) < 0 else 'stopped'))),
-        'rotation_dir_z': (None if gz is None else ('CW' if (trackers['z'].sign * gz) > 0 else ('CCW' if (trackers['z'].sign * gz) < 0 else 'stopped'))),
-        'heading_x_deg': round(hx, 2),
-        'heading_y_deg': round(hy, 2),
-        'heading_z_deg': round(hz, 2)
+    'gyro_rate_z_dps': None if gz is None else round(gz, 2),
+    'gyro_is_mock': bool(gyro.dev is None),
+    # rotation direction (Z axis)
+    'rotation_dir_z': (None if gz is None else ('CW' if (tracker_z.sign * gz) > 0 else ('CCW' if (tracker_z.sign * gz) < 0 else 'stopped'))),
+    'heading_z_deg': round(hz, 2)
     })
 
 
 @app.route('/api/reset_heading', methods=['POST'])
 def api_reset_heading():
-    for t in trackers.values():
-        t.reset()
-    return jsonify({'status': 'ok', 'heading_x_deg': 0.0, 'heading_y_deg': 0.0, 'heading_z_deg': 0.0})
+    tracker_z.reset()
+    return jsonify({'status': 'ok', 'heading_z_deg': 0.0})
 
 
 if __name__ == '__main__':
