@@ -55,15 +55,44 @@ class GyroSensor:
     def get_gyro_z(self):
         """Return gyroscope Z rate in degrees/second (positive = clockwise when looking down).
         """
+        # keep compatibility
+        return self.get_gyro('z')
+
+    def get_gyro_x(self):
+        return self.get_gyro('x')
+
+    def get_gyro_y(self):
+        return self.get_gyro('y')
+
+    def get_gyro(self, axis='z'):
+        """Return gyroscope rate for axis 'x','y' or 'z' in deg/s.
+        Falls back to a mock signal when no device is present.
+        """
+        a = axis.lower()
         if self.dev:
             try:
                 g = self.dev.get_gyro_data()  # returns x/y/z in deg/s
-                return g.get('z', 0.0)
+                return float(g.get(a, 0.0))
             except Exception:
                 return 0.0
-        # Mock: slow sinusoidal rotation with small noise
+
+        # Mock: produce smooth sinusoidal values with slightly different params per axis
         t = time.time()
-        return self._gyro_amp * math.sin(2.0 * math.pi * self._gyro_freq * t + self._gyro_phase) + random.uniform(-1.0, 1.0)
+        if not hasattr(self, '_mock_gyro_params'):
+            # deterministic-ish per-axis mock parameters
+            self._mock_gyro_params = {}
+            base_amp = {'x': 10.0, 'y': 12.0, 'z': 20.0}
+            base_freq = {'x': 0.11, 'y': 0.09, 'z': 0.08}
+            for ax in ('x', 'y', 'z'):
+                self._mock_gyro_params[ax] = {
+                    'amp': base_amp[ax],
+                    'freq': base_freq[ax],
+                    'phase': random.random() * 2.0 * math.pi,
+                    'noise': 1.0 + random.random() * 0.6,
+                }
+
+        p = self._mock_gyro_params.get(a, self._mock_gyro_params['z'])
+        return p['amp'] * math.sin(2.0 * math.pi * p['freq'] * t + p['phase']) + random.uniform(-p['noise'], p['noise'])
 
 
 class UltrasonicSensor:
@@ -124,13 +153,15 @@ class HeadingTracker:
     """Integrate gyro z-rate to produce a heading in degrees within [0, 360).
     Supports reset() to declare the current heading as 0.
     """
-    def __init__(self, gyro_sensor, poll_interval=0.05, sign=1):
+    def __init__(self, gyro_sensor, poll_interval=0.05, sign=1, axis='z'):
         self.gyro = gyro_sensor
         self.poll = poll_interval
         self._raw = 0.0
         self._offset = 0.0
         # sign: 1 keeps gyro sign as-is, -1 inverts rotation direction used for integration
         self.sign = 1 if sign >= 0 else -1
+        # axis: 'x','y' or 'z' - which gyro axis to integrate
+        self.axis = axis.lower()
         self._lock = threading.Lock()
         self._running = False
         self._thread = None
@@ -153,7 +184,13 @@ class HeadingTracker:
             now = time.time()
             dt = now - last
             last = now
-            rate = self.gyro.get_gyro_z()  # deg/s
+            # pick the correct gyro axis getter
+            getter = getattr(self.gyro, f'get_gyro_{self.axis}', None)
+            if getter is None:
+                # fallback to z
+                rate = self.gyro.get_gyro('z')
+            else:
+                rate = getter()
             # apply configurable sign so sensor wrapper stays untouched
             delta = (self.sign * rate) * dt
             with self._lock:
