@@ -211,10 +211,7 @@ class HeadingTracker:
                     rate = 0.0
 
             # if gyro appears to be a mock/unavailable, or rate is tiny, skip integration to avoid drift
-            # Treat missing device OR missing smbus as a mock. Previously this used AND which
-            # could mark the sensor as "real" when _use_smbus is True but dev is None,
-            # leading to spurious small reads being integrated slowly.
-            is_gyro_mock = (getattr(self.gyro, 'dev', None) is None) or (not getattr(self.gyro, '_use_smbus', False))
+            is_gyro_mock = (getattr(self.gyro, 'dev', None) is None) and (not getattr(self.gyro, '_use_smbus', False))
             if rate is None:
                 rate = 0.0
             if is_gyro_mock or abs(rate) < self.min_rate_thresh:
@@ -257,6 +254,174 @@ tracker_z.start()
 # Log sensor modes so it's obvious on startup whether real GPIO is used
 print(f'INFO: sensor_front mock={sensor_front.mock}, sensor_right mock={sensor_right.mock}, HAS_GPIO={HAS_GPIO}, HAS_MPU={HAS_MPU}')
 print(f'INFO: gyro mock={(gyro.dev is None)}')
+
+# --- Motor controller for L298N (uses BCM pins from raspberry-pins.txt) ---
+class MotorController:
+    """Simple motor controller for four motors (L298N). Expects BCM pin numbers.
+    Motor naming: front_left, back_left, front_right, back_right
+    Each motor uses two GPIO pins (A,B). We'll use A for PWM control and B as direction flip.
+    This is a simple abstraction sufficient for forward/backward/rotate.
+    """
+    def __init__(self, pins=None, pwm_freq=1000):
+        # pins: dict(name -> (a_pin, b_pin))
+        default = {
+            'front_left': (13, 6),
+            'back_left': (26, 19),
+            'front_right': (27, 22),
+            'back_right': (4, 17)
+        }
+        self.pins = pins or default
+        self.pwms = {}
+        self.enabled = HAS_GPIO
+        if HAS_GPIO:
+            GPIO.setmode(GPIO.BCM)
+            for name, (a, b) in self.pins.items():
+                GPIO.setup(a, GPIO.OUT)
+                GPIO.setup(b, GPIO.OUT)
+                pwm = GPIO.PWM(a, pwm_freq)
+                pwm.start(0.0)
+                self.pwms[name] = (pwm, b)
+        else:
+            print('INFO: GPIO not available, MotorController will operate in mock mode.')
+
+    def set_motor(self, name, speed):
+        """Set motor speed in range [-1.0, 1.0]. Positive = forward.
+        Speed is applied as PWM duty cycle (0-100) on pin A; pin B controls direction.
+        """
+        speed = max(-1.0, min(1.0, float(speed)))
+        if not self.enabled:
+            print(f'MOCK motor {name} set to {speed:.2f}')
+            return
+        pwm, b_pin = self.pwms[name]
+        duty = abs(speed) * 100.0
+        GPIO.output(b_pin, GPIO.HIGH if speed >= 0 else GPIO.LOW)
+        pwm.ChangeDutyCycle(duty)
+
+    def stop_all(self):
+        if not self.enabled:
+            print('MOCK stop_all')
+            return
+        for name in self.pwms:
+            pwm, b = self.pwms[name]
+            pwm.ChangeDutyCycle(0.0)
+
+
+# Instantiate motor controller (safe mock if no GPIO)
+motors = MotorController()
+
+# Worker to run the corner-handling sequence (ecken_handling)
+_collect_lock = threading.Lock()
+def ecken_handling_sequence():
+    """Drive forward at 60% until front sensor <=5cm, then continue 1s, then:
+    - rotate CW 1s
+    - drive backward 1s
+    - rotate CCW 1s
+    - compute target heading = current_heading - 90 and rotate to it
+    - then continue straight (function exits, caller may loop)
+    """
+    try:
+        speed = 0.6
+        # forward: set left/right motors forward
+        def forward(s):
+            motors.set_motor('front_left', s)
+            motors.set_motor('back_left', s)
+            motors.set_motor('front_right', s)
+            motors.set_motor('back_right', s)
+
+        def rotate_clockwise(s):
+            # clockwise: left forward, right backward
+            motors.set_motor('front_left', s)
+            motors.set_motor('back_left', s)
+            motors.set_motor('front_right', -s)
+            motors.set_motor('back_right', -s)
+
+        def rotate_ccw(s):
+            rotate_clockwise(-s)
+
+        # 1) Drive forward until front sensor sees <=5cm
+        forward(speed)
+        while True:
+            d = sensor_front.get_distance_cm()
+            if d is not None and d <= 5.0:
+                break
+            time.sleep(0.05)
+
+        # continue 1s
+        time.sleep(1.0)
+        motors.stop_all()
+        time.sleep(0.1)
+
+        # 2) rotate clockwise 1s
+        rotate_clockwise(speed)
+        time.sleep(1.0)
+        motors.stop_all()
+        time.sleep(0.1)
+
+        # 3) backward 1s
+        forward(-speed)
+        time.sleep(1.0)
+        motors.stop_all()
+        time.sleep(0.1)
+
+        # 4) rotate counter-clockwise 1s
+        rotate_ccw(speed)
+        time.sleep(1.0)
+        motors.stop_all()
+        time.sleep(0.1)
+
+        # 5) rotate to heading -90 relative to current (i.e. target = h - 90)
+        current = tracker_z.get_heading()
+        target = (current - 90.0) % 360.0
+
+        # rotate until within 5 degrees of target
+        def shortest_angle_diff(a, b):
+            d = (b - a + 180.0) % 360.0 - 180.0
+            return d
+
+        # rotate towards target using gyro heading feedback
+        max_timeout = 5.0
+        start_t = time.time()
+        while True:
+            h = tracker_z.get_heading()
+            diff = shortest_angle_diff(h, target)
+            if abs(diff) <= 5.0:
+                break
+            # if diff > 0 -> need to rotate CCW, else CW (based on heading convention)
+            if diff > 0:
+                # rotate CCW small
+                rotate_ccw(0.4)
+            else:
+                rotate_clockwise(0.4)
+            time.sleep(0.05)
+            motors.stop_all()
+            if time.time() - start_t > max_timeout:
+                break
+
+        motors.stop_all()
+        # 6) continue straight
+        forward(speed)
+        # leave running forward; caller may stop or we could stop after a small time
+        time.sleep(2.0)
+        motors.stop_all()
+    finally:
+        motors.stop_all()
+
+
+@app.route('/api/start_collect', methods=['POST'])
+def api_start_collect():
+    # start the ecken_handling sequence in a background thread; prevent concurrent runs
+    if not _collect_lock.acquire(blocking=False):
+        return jsonify({'status': 'already_running'})
+
+    def _worker():
+        try:
+            ecken_handling_sequence()
+        finally:
+            _collect_lock.release()
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+    return jsonify({'status': 'started'})
 
 
 @app.route('/')

@@ -19,7 +19,8 @@
   <div class="row"><div>Right distance <small id="right-badge" style="color:#666;font-weight:normal">(unknown)</small></div><div id="right" class="value">-- cm</div></div>
   <div class="row"><div>Heading Z</div><div id="heading_z" class="value">--°</div></div>
   <div class="row"><div>Last update</div><div id="updated" class="value">--</div></div>
-    <div style="text-align:right;margin-top:8px;"><button id="reset">Reset heading to 0°</button></div>
+  <div style="text-align:right;margin-top:8px;"><button id="reset">Reset heading to 0°</button></div>
+  <div style="text-align:right;margin-top:8px;"><button id="start-collect">Start collecting</button></div>
   </div>
 
   <script>
@@ -49,6 +50,16 @@
       await fetch('/api/reset_heading', {method:'POST'});
       // immediate fetch to update UI
       fetchStatus();
+    });
+
+    document.getElementById('start-collect').addEventListener('click', async ()=>{
+      try{
+        const r = await fetch('/api/start_collect', {method:'POST'});
+        const j = await r.json();
+        alert('Started: ' + (j.status||'ok'));
+      }catch(e){
+        alert('Failed to start');
+      }
     });
 
     // poll every 300ms
