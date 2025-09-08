@@ -425,17 +425,29 @@ def ecken_handling_sequence():
             motors.set_motor('back_right', right)
 
         # 1) Drive forward until front sensor sees <=5cm
-        forward(speed)
+        # Use heading hold to actively counter-steer back to absolute heading 0°
+        # so small deviations while driving straight are corrected.
+        course_heading = 0.0
+        # drive forward while holding heading; check front sensor each cycle
         while True:
             if _stop_event.is_set():
+                motors.stop_all()
                 return
             d = sensor_front.get_distance_cm()
             if d is not None and d <= 5.0:
                 break
+            # apply proportional heading correction while moving forward
+            apply_heading_hold(speed, kp=0.04)
             time.sleep(0.05)
 
-        # continue 1s
-        time.sleep(1.0)
+        # continue 1s (keep heading hold active during the short continue)
+        start = time.time()
+        while time.time() - start < 1.0:
+            if _stop_event.is_set():
+                motors.stop_all()
+                return
+            apply_heading_hold(speed, kp=0.04)
+            time.sleep(0.05)
         motors.stop_all()
         time.sleep(0.1)
 
@@ -503,10 +515,15 @@ def ecken_handling_sequence():
                 break
 
         motors.stop_all()
-        # 6) continue straight
-        forward(speed)
-        # leave running forward; caller may stop or we could stop after a small time
-        time.sleep(2.0)
+        # 6) continue straight — use heading hold to keep heading at 0° for a short period
+        course_heading = 0.0
+        start = time.time()
+        while time.time() - start < 2.0:
+            if _stop_event.is_set():
+                motors.stop_all()
+                return
+            apply_heading_hold(speed, kp=0.04)
+            time.sleep(0.05)
         motors.stop_all()
     finally:
         motors.stop_all()
