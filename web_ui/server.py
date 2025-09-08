@@ -16,6 +16,8 @@ import math
 from math import fmod
 from flask import Flask, jsonify, request, send_from_directory
 
+app = Flask(__name__, static_folder="static", static_url_path="")
+
 try:
     from mpu6050 import mpu6050
     HAS_MPU = True
@@ -27,132 +29,95 @@ try:
     from smbus2 import SMBus
     HAS_SMBUS = True
 except Exception:
-    try:
-        speed = 0.6
+    HAS_SMBUS = False
 
-        # helper: forward/rotate helpers and angle math
-        def forward(s):
-            motors.set_motor('front_left', s)
-            motors.set_motor('back_left', s)
-            motors.set_motor('front_right', s)
-            motors.set_motor('back_right', s)
+try:
+    import RPi.GPIO as GPIO
+    HAS_GPIO = True
+except Exception:
+    HAS_GPIO = False
 
-        def rotate_clockwise(s):
-            motors.set_motor('front_left', s)
-            motors.set_motor('back_left', s)
-            motors.set_motor('front_right', -s)
-            motors.set_motor('back_right', -s)
 
-        def rotate_ccw(s):
-            rotate_clockwise(-s)
+class GyroSensor:
+    """Minimal wrapper around MPU6050 to provide Z-axis rotation rate in deg/s.
+    Falls back to a mock that returns 0.0 when device is unavailable.
+    """
+    def __init__(self, bus=1, address=0x68):
+        self._use_smbus = False
+        self.dev = None
+        self._bus_num = bus
+        self._address = address
 
-        def shortest_angle_diff(a, b):
-            d = (b - a + 180.0) % 360.0 - 180.0
-            return d
+        if HAS_SMBUS:
+            try:
+                self._bus = SMBus(self._bus_num)
+                # wake up device
+                self._bus.write_byte_data(self._address, 0x6B, 0)
+                self._use_smbus = True
+                print("INFO: MPU6050 accessed via smbus2")
+            except Exception as e:
+                print(f"WARN: smbus2 access to MPU6050 failed: {e}")
+                self._use_smbus = False
 
-        def rotate_towards_target(target, rot_speed=0.4, tol_deg=5.0, timeout=5.0):
-            start_t = time.time()
-            while True:
-                if _stop_event.is_set():
-                    motors.stop_all()
-                    return False
-                h = tracker_z.get_heading()
-                diff = shortest_angle_diff(h, target)
-                if abs(diff) <= tol_deg:
-                    break
-                # User requested: rotate in the opposite direction to the shortest-path.
-                if diff > 0:
-                    rotate_clockwise(rot_speed)
-                else:
-                    rotate_ccw(rot_speed)
-                time.sleep(0.05)
-                motors.stop_all()
-                if time.time() - start_t > timeout:
-                    break
-            motors.stop_all()
-            return True
+        if not self._use_smbus:
+            # no library/device available; leave dev as None so callers know
+            self.dev = None
 
-        # Main loop: repeat the 3-step corner handling until stopped
-        while not _stop_event.is_set():
-            # record heading when this iteration begins
-            start_heading = tracker_z.get_heading()
-            course_heading = start_heading
+    def get_gyro_z(self):
+        return self.get_gyro('z')
 
-            # 1) drive forward until obstacle detected
-            while True:
-                if _stop_event.is_set():
-                    motors.stop_all()
-                    return
-                d = sensor_front.get_distance_cm()
-                if d is not None and d <= 5.0:
-                    break
-                apply_heading_hold(speed, kp=0.04)
-                time.sleep(0.05)
+    def get_gyro_x(self):
+        return self.get_gyro('x')
 
-            # short stop
-            motors.stop_all()
-            time.sleep(0.1)
+    def get_gyro_y(self):
+        return self.get_gyro('y')
 
-            # 2) rotate clockwise 1s
-            rotate_clockwise(speed)
-            start = time.time()
-            while time.time() - start < 1.0:
-                if _stop_event.is_set():
-                    motors.stop_all()
-                    return
-                time.sleep(0.02)
-            motors.stop_all()
-            time.sleep(0.1)
+    def get_gyro(self, axis='z'):
+        a = axis.lower()
+        if self._use_smbus:
+            try:
+                data = self._bus.read_i2c_block_data(self._address, 0x43, 6)
+                def to_signed(h, l):
+                    v = (h << 8) | l
+                    return v - 65536 if v & 0x8000 else v
+                gx = to_signed(data[0], data[1])
+                gy = to_signed(data[2], data[3])
+                gz = to_signed(data[4], data[5])
+                raw = {'x': gx, 'y': gy, 'z': gz}
+                scale = 131.0
+                return float(raw.get(a, 0.0)) / scale
+            except Exception:
+                return 0.0
 
-            # 3) backward 1s
-            forward(-speed)
-            start = time.time()
-            while time.time() - start < 1.0:
-                if _stop_event.is_set():
-                    motors.stop_all()
-                    return
-                time.sleep(0.02)
-            motors.stop_all()
-            time.sleep(0.1)
+        if self.dev:
+            try:
+                g = self.dev.get_gyro_data()
+                return float(g.get(a, 0.0))
+            except Exception:
+                return 0.0
 
-            # 4) rotate to absolute heading (start_heading - 90°) using inverted direction
-            target = (start_heading - 90.0) % 360.0
-            rotate_towards_target(target, rot_speed=0.4, tol_deg=5.0, timeout=5.0)
+        return 0.0
 
-            # After rotation: set new course to the achieved target and continue forward
-            course_heading = target
-            # drive forward until next obstacle (this will loop back naturally)
-            # small forward burst to get away from corner and then continue loop
-            start_fw = time.time()
-            while True:
-                if _stop_event.is_set():
-                    motors.stop_all()
-                    return
-                # check if immediate obstacle in front; if so, break to handle again
-                d = sensor_front.get_distance_cm()
-                if d is not None and d <= 5.0:
-                    break
-                # hold heading while moving forward
-                apply_heading_hold(speed, kp=0.04)
-                time.sleep(0.05)
-                # continue until a new obstacle is found; the outer loop restarts
-            motors.stop_all()
+
+class UltrasonicSensor:
+    """Wrapper for HC-SR04. If RPi.GPIO isn't available, returns mock distances.
+    Initialize with TRIG and ECHO BCM pin numbers.
+    """
+    def __init__(self, trig_pin=None, echo_pin=None):
+        self.trig = trig_pin
+        self.echo = echo_pin
         self.mock = not HAS_GPIO or self.trig is None or self.echo is None
         if not self.mock:
             GPIO.setmode(GPIO.BCM)
             GPIO.setup(self.trig, GPIO.OUT)
             GPIO.setup(self.echo, GPIO.IN)
         else:
-            # GPIO not available or pins not specified. Do not generate demo distance values.
-            # get_distance_cm() will return None to indicate the sensor is unavailable.
             pass
 
     def get_distance_cm(self):
         if self.mock:
-            # No hardware available: indicate unavailable explicitly
             return None
 
-        # Send trigger
         GPIO.output(self.trig, False)
         time.sleep(0.0002)
         GPIO.output(self.trig, True)
@@ -170,7 +135,6 @@ except Exception:
             stop = time.time()
 
         elapsed = stop - start
-        # speed of sound ~34300 cm/s, distance = elapsed * speed / 2
         distance = elapsed * 34300.0 / 2.0
         return distance
 
