@@ -15,9 +15,10 @@
 <body>
   <h1>Raspberry Pi Sensors</h1>
   <div class="card">
-    <div class="row"><div>Front distance</div><div id="front" class="value">-- cm</div></div>
-    <div class="row"><div>Right distance</div><div id="right" class="value">-- cm</div></div>
-    <div class="row"><div>Heading</div><div id="heading" class="value">--°</div></div>
+  <div class="row"><div>Front distance <small id="front-badge" style="color:#666;font-weight:normal">(unknown)</small></div><div id="front" class="value">-- cm</div></div>
+  <div class="row"><div>Right distance <small id="right-badge" style="color:#666;font-weight:normal">(unknown)</small></div><div id="right" class="value">-- cm</div></div>
+  <div class="row"><div>Heading</div><div id="heading" class="value">--°</div></div>
+  <div class="row"><div>Last update</div><div id="updated" class="value">--</div></div>
     <div style="text-align:right;margin-top:8px;"><button id="reset">Reset heading to 0°</button></div>
   </div>
 
@@ -29,6 +30,14 @@
         document.getElementById('front').textContent = (j.distance_front_cm==null)?'N/A':j.distance_front_cm + ' cm';
         document.getElementById('right').textContent = (j.distance_right_cm==null)?'N/A':j.distance_right_cm + ' cm';
         document.getElementById('heading').textContent = (typeof j.heading_deg === 'number')? j.heading_deg.toFixed(2) + '°' : 'N/A';
+        // show mock/live badges
+        document.getElementById('front-badge').textContent = j.front_is_mock ? '(mock)' : '(live)';
+        document.getElementById('right-badge').textContent = j.right_is_mock ? '(mock)' : '(live)';
+        // timestamp
+        if (j.timestamp){
+          const d = new Date(j.timestamp * 1000);
+          document.getElementById('updated').textContent = d.toLocaleTimeString();
+        }
       }catch(e){
         document.getElementById('front').textContent = 'err';
         document.getElementById('right').textContent = 'err';

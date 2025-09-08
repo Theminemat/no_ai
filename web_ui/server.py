@@ -184,6 +184,9 @@ sensor_right = UltrasonicSensor(trig_pin=23, echo_pin=24)  # right TRIG=BCM23, E
 tracker = HeadingTracker(gyro, sign=-1)
 tracker.start()
 
+# Log sensor modes so it's obvious on startup whether real GPIO is used
+print(f'INFO: sensor_front mock={sensor_front.mock}, sensor_right mock={sensor_right.mock}, HAS_GPIO={HAS_GPIO}, HAS_MPU={HAS_MPU}')
+
 
 @app.route('/')
 def index():
@@ -204,6 +207,9 @@ def api_status():
     return jsonify({
         'distance_front_cm': None if front is None else round(front, 1),
         'distance_right_cm': None if right is None else round(right, 1),
+    'front_is_mock': bool(sensor_front.mock),
+    'right_is_mock': bool(sensor_right.mock),
+    'timestamp': int(time.time()),
         'heading_deg': round(heading, 2)
     })
 
