@@ -343,7 +343,17 @@ def ecken_handling_sequence():
     """
     speed = 0.6
     try:
-        # record the heading when the sequence starts
+        # wait until the front sensor detects an obstacle (corner) before starting
+        while True:
+            if _stop_event.is_set():
+                motors.stop_all()
+                return
+            d = sensor_front.get_distance_cm()
+            if d is not None and d <= 5.0:
+                break
+            time.sleep(0.05)
+
+        # record the heading at the moment the obstacle was detected
         start_heading = tracker_z.get_heading()
 
         # helpers
