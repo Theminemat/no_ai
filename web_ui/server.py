@@ -344,6 +344,9 @@ def ecken_handling_sequence():
     """
     try:
         speed = 0.6
+        # current desired course heading (deg). We'll set this to the
+        # tracker heading when starting forward motion and update it after rotations.
+        course_heading = tracker_z.get_heading()
         # forward: set left/right motors forward
         def forward(s):
             motors.set_motor('front_left', s)
@@ -361,6 +364,66 @@ def ecken_handling_sequence():
         def rotate_ccw(s):
             rotate_clockwise(-s)
 
+        # helper: read current gyro Z rate (signed according to tracker sign)
+        def _current_rotation_dps():
+            try:
+                gz = gyro.get_gyro_z()
+            except Exception:
+                gz = 0.0
+            if gz is None:
+                gz = 0.0
+            # apply tracker sign so positive means 'clockwise' in our app's convention
+            return tracker_z.sign * gz
+
+        # rotate but invert direction if the gyro already indicates rotation in the
+        # same direction (prevents doubling the turn direction when the robot is
+        # already rotating). intended_dir: 'CW' or 'CCW'
+        def rotate_with_gyro_check(intended_dir, s, thr_dps=2.0):
+            cur = _current_rotation_dps()
+            rot = intended_dir
+            # if current rotation magnitude exceeds threshold and matches intended
+            # direction, invert the commanded direction
+            if abs(cur) >= float(thr_dps):
+                if cur > 0 and intended_dir == 'CW':
+                    rot = 'CCW'
+                elif cur < 0 and intended_dir == 'CCW':
+                    rot = 'CW'
+            if rot == 'CW':
+                rotate_clockwise(s)
+            else:
+                rotate_ccw(s)
+
+        # small helper: shortest signed difference b - a in degrees (-180, 180]
+        def shortest_angle_diff(a, b):
+            d = (b - a + 180.0) % 360.0 - 180.0
+            return d
+
+        # heading control: set the target course to current tracker heading
+        def set_course_to_current():
+            nonlocal course_heading
+            try:
+                course_heading = tracker_z.get_heading()
+            except Exception:
+                pass
+
+        # apply a simple proportional heading controller while driving.
+        # speed: base speed in [-1,1]. Uses motors.set_motor to apply differential steering.
+        def apply_heading_hold(speed, kp=0.02):
+            try:
+                cur = tracker_z.get_heading()
+            except Exception:
+                cur = course_heading
+            # error: target - current (signed)
+            err = shortest_angle_diff(cur, course_heading)
+            # correction is added to left, subtracted from right
+            corr = kp * err
+            left = max(-1.0, min(1.0, speed + corr))
+            right = max(-1.0, min(1.0, speed - corr))
+            motors.set_motor('front_left', left)
+            motors.set_motor('back_left', left)
+            motors.set_motor('front_right', right)
+            motors.set_motor('back_right', right)
+
         # 1) Drive forward until front sensor sees <=5cm
         forward(speed)
         while True:
@@ -376,8 +439,8 @@ def ecken_handling_sequence():
         motors.stop_all()
         time.sleep(0.1)
 
-        # 2) rotate clockwise 1s
-        rotate_clockwise(speed)
+        # 2) rotate clockwise 1s (gyro-aware)
+        rotate_with_gyro_check('CW', speed)
         start = time.time()
         while time.time() - start < 1.0:
             if _stop_event.is_set():
@@ -398,8 +461,8 @@ def ecken_handling_sequence():
         motors.stop_all()
         time.sleep(0.1)
 
-        # 4) rotate counter-clockwise 1s
-        rotate_ccw(speed)
+        # 4) rotate counter-clockwise 1s (gyro-aware)
+        rotate_with_gyro_check('CCW', speed)
         start = time.time()
         while time.time() - start < 1.0:
             if _stop_event.is_set():
