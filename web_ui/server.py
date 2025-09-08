@@ -68,12 +68,9 @@ class GyroSensor:
                 print(f"ERROR: Failed to initialize MPU6050 via library on bus {bus} at address {hex(address)}: {e}")
                 self.dev = None
         else:
-            print("WARNING: MPU6050 library not found. Using mock sensor.")
+            print("WARNING: MPU6050 library not found. MPU6050 unavailable; gyro reads will return 0.0")
             self.dev = None
-            # Mock parameters to make demo gyro more realistic and variable
-            self._gyro_phase = random.random() * 2.0 * math.pi
-            self._gyro_amp = 20.0  # deg/s peak
-            self._gyro_freq = 0.08  # Hz (slow rotation)
+            # No demo/mock gyro signal anymore. When hardware is not present we return 0.0.
 
     def get_gyro_z(self):
         """Return gyroscope Z rate in degrees/second (positive = clockwise when looking down).
@@ -116,23 +113,8 @@ class GyroSensor:
             except Exception:
                 return 0.0
 
-        # Mock: produce smooth sinusoidal values with slightly different params per axis
-        t = time.time()
-        if not hasattr(self, '_mock_gyro_params'):
-            # deterministic-ish per-axis mock parameters
-            self._mock_gyro_params = {}
-            base_amp = {'x': 10.0, 'y': 12.0, 'z': 20.0}
-            base_freq = {'x': 0.11, 'y': 0.09, 'z': 0.08}
-            for ax in ('x', 'y', 'z'):
-                self._mock_gyro_params[ax] = {
-                    'amp': base_amp[ax],
-                    'freq': base_freq[ax],
-                    'phase': random.random() * 2.0 * math.pi,
-                    'noise': 1.0 + random.random() * 0.6,
-                }
-
-        p = self._mock_gyro_params.get(a, self._mock_gyro_params['z'])
-        return p['amp'] * math.sin(2.0 * math.pi * p['freq'] * t + p['phase']) + random.uniform(-p['noise'], p['noise'])
+        # No mock/demo gyro signal: return 0.0 when no device is present.
+        return 0.0
 
 
 class UltrasonicSensor:
@@ -148,23 +130,14 @@ class UltrasonicSensor:
             GPIO.setup(self.trig, GPIO.OUT)
             GPIO.setup(self.echo, GPIO.IN)
         else:
-            # Per-instance demo parameters so multiple mock sensors don't return identical values
-            # Use pin numbers when available to derive deterministic differences
-            seed = (int(self.trig or 0) * 37) ^ (int(self.echo or 0) * 17)
-            rnd = random.Random(seed)
-            self._base = 25.0 + (rnd.random() * 20.0)  # base distance between ~25..45 cm
-            self._amp = 6.0 + (rnd.random() * 8.0)     # amplitude between ~6..14 cm
-            self._freq = 0.08 + (rnd.random() * 0.12)  # frequency between ~0.08..0.2 Hz
-            self._phase = rnd.random() * 2.0 * math.pi
-            self._noise = 0.3 + rnd.random() * 1.2     # small random noise
+            # GPIO not available or pins not specified. Do not generate demo distance values.
+            # get_distance_cm() will return None to indicate the sensor is unavailable.
+            pass
 
     def get_distance_cm(self):
         if self.mock:
-            # produce a smooth sinusoidal distance plus small random noise
-            t = time.time()
-            val = self._base + self._amp * math.sin(2.0 * math.pi * self._freq * t + self._phase)
-            val += random.uniform(-self._noise, self._noise)
-            return max(0.0, val)
+            # No hardware available: indicate unavailable explicitly
+            return None
 
         # Send trigger
         GPIO.output(self.trig, False)
