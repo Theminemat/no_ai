@@ -272,13 +272,18 @@ class MotorController:
         }
         self.pins = pins or default
         self.pwms = {}
+        # If your wiring makes positive speeds drive backwards, set this True to flip direction
+        self.invert_direction = True
         self.enabled = HAS_GPIO
-        if HAS_GPIO:
+        if self.enabled:
             GPIO.setmode(GPIO.BCM)
             for name, (a, b) in self.pins.items():
+                # initialize direction pin to a safe known state BEFORE enabling PWM
                 GPIO.setup(a, GPIO.OUT)
                 GPIO.setup(b, GPIO.OUT)
+                GPIO.output(b, GPIO.LOW)
                 pwm = GPIO.PWM(a, pwm_freq)
+                # start PWM with 0 duty to ensure motor is stopped
                 pwm.start(0.0)
                 self.pwms[name] = (pwm, b)
         else:
@@ -294,7 +299,11 @@ class MotorController:
             return
         pwm, b_pin = self.pwms[name]
         duty = abs(speed) * 100.0
-        GPIO.output(b_pin, GPIO.HIGH if speed >= 0 else GPIO.LOW)
+        # apply global inversion if wiring is reversed
+        dir_forward = True if speed >= 0 else False
+        if getattr(self, 'invert_direction', False):
+            dir_forward = not dir_forward
+        GPIO.output(b_pin, GPIO.HIGH if dir_forward else GPIO.LOW)
         pwm.ChangeDutyCycle(duty)
 
     def stop_all(self):
@@ -304,10 +313,16 @@ class MotorController:
         for name in self.pwms:
             pwm, b = self.pwms[name]
             pwm.ChangeDutyCycle(0.0)
+            # leave direction pins in safe (LOW) state
+            try:
+                GPIO.output(b, GPIO.LOW)
+            except Exception:
+                pass
 
 
-# Instantiate motor controller (safe mock if no GPIO)
+# Instantiate motor controller (safe mock if no GPIO) and ensure stopped at startup
 motors = MotorController()
+motors.stop_all()
 
 # Worker to run the corner-handling sequence (ecken_handling)
 _collect_lock = threading.Lock()
