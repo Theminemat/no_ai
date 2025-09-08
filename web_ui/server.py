@@ -20,7 +20,12 @@ try:
 except Exception:
     HAS_GPIO = False
 
-from .gyro_sensor import GyroSensor
+try:
+    # try absolute import (works when running server.py directly)
+    from gyro_sensor import GyroSensor
+except Exception:
+    # fallback for package-style imports
+    from .gyro_sensor import GyroSensor
 
 app = Flask(__name__, static_folder="static", static_url_path="")
 
