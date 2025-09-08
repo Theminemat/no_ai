@@ -384,11 +384,14 @@ def ecken_handling_sequence():
                 diff = shortest_angle_diff(h, target)
                 if abs(diff) <= tol_deg:
                     break
-                # if diff > 0, target is CCW from current, so rotate CCW; else CW
+                # User requested: rotate in the opposite direction to the shortest-path.
+                # Normally: diff > 0 -> target is CCW so rotate CCW. We invert that.
                 if diff > 0:
-                    rotate_ccw(rot_speed)
-                else:
+                    # shortest path would be CCW -> instead rotate CW
                     rotate_clockwise(rot_speed)
+                else:
+                    # shortest path would be CW -> instead rotate CCW
+                    rotate_ccw(rot_speed)
                 time.sleep(0.05)
                 motors.stop_all()
                 if time.time() - start_t > timeout:
