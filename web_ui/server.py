@@ -211,7 +211,10 @@ class HeadingTracker:
                     rate = 0.0
 
             # if gyro appears to be a mock/unavailable, or rate is tiny, skip integration to avoid drift
-            is_gyro_mock = (getattr(self.gyro, 'dev', None) is None) and (not getattr(self.gyro, '_use_smbus', False))
+            # Treat missing device OR missing smbus as a mock. Previously this used AND which
+            # could mark the sensor as "real" when _use_smbus is True but dev is None,
+            # leading to spurious small reads being integrated slowly.
+            is_gyro_mock = (getattr(self.gyro, 'dev', None) is None) or (not getattr(self.gyro, '_use_smbus', False))
             if rate is None:
                 rate = 0.0
             if is_gyro_mock or abs(rate) < self.min_rate_thresh:
