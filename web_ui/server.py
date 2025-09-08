@@ -22,6 +22,13 @@ try:
 except Exception:
     HAS_MPU = False
 
+# Prefer direct smbus2 access to avoid heavy scipy/numpy deps from some mpu6050 packages
+try:
+    from smbus2 import SMBus
+    HAS_SMBUS = True
+except Exception:
+    HAS_SMBUS = False
+
 try:
     import RPi.GPIO as GPIO
     HAS_GPIO = True
@@ -36,13 +43,29 @@ class GyroSensor:
     Falls back to a mock that returns a slow rotation for demo/testing.
     """
     def __init__(self, bus=1, address=0x68):
-        if HAS_MPU:
-            print("INFO: MPU6050 library found.")
+        self._use_smbus = False
+        self.dev = None
+        self._bus_num = bus
+        self._address = address
+
+        if HAS_SMBUS:
+            try:
+                self._bus = SMBus(self._bus_num)
+                # wake up device
+                self._bus.write_byte_data(self._address, 0x6B, 0)
+                self._use_smbus = True
+                print("INFO: MPU6050 accessed via smbus2")
+            except Exception as e:
+                print(f"WARN: smbus2 access to MPU6050 failed: {e}")
+                self._use_smbus = False
+
+        if not self._use_smbus and HAS_MPU:
+            print("INFO: MPU6050 library found (fallback).")
             try:
                 self.dev = mpu6050(address, bus)
-                print("INFO: MPU6050 device initialized successfully.")
+                print("INFO: MPU6050 device initialized successfully via library.")
             except Exception as e:
-                print(f"ERROR: Failed to initialize MPU6050 on bus {bus} at address {hex(address)}: {e}")
+                print(f"ERROR: Failed to initialize MPU6050 via library on bus {bus} at address {hex(address)}: {e}")
                 self.dev = None
         else:
             print("WARNING: MPU6050 library not found. Using mock sensor.")
@@ -69,6 +92,23 @@ class GyroSensor:
         Falls back to a mock signal when no device is present.
         """
         a = axis.lower()
+        if self._use_smbus:
+            try:
+                # read 6 bytes starting at GYRO_XOUT_H (0x43)
+                data = self._bus.read_i2c_block_data(self._address, 0x43, 6)
+                def to_signed(h, l):
+                    v = (h << 8) | l
+                    return v - 65536 if v & 0x8000 else v
+                gx = to_signed(data[0], data[1])
+                gy = to_signed(data[2], data[3])
+                gz = to_signed(data[4], data[5])
+                raw = {'x': gx, 'y': gy, 'z': gz}
+                # default FS = ±250 dps -> scale = 131 LSB/(deg/s)
+                scale = 131.0
+                return float(raw.get(a, 0.0)) / scale
+            except Exception:
+                return 0.0
+
         if self.dev:
             try:
                 g = self.dev.get_gyro_data()  # returns x/y/z in deg/s
