@@ -332,10 +332,12 @@ def _rotate_in_place(degrees, rot_speed=0.4, tol_deg=4.0, timeout=8.0):
         return d
 
     start_t = time.time()
+    print(f"INFO: rotate_in_place start: start_heading={start:.2f} target={target:.2f} degrees={degrees}")
     try:
         while True:
             if _stop_event.is_set():
                 motors.stop_all()
+                print("INFO: rotate_in_place aborted due to _stop_event")
                 return False
             now = tracker_z.get_heading()
             diff = shortest_angle_diff(now, target)
@@ -349,6 +351,7 @@ def _rotate_in_place(degrees, rot_speed=0.4, tol_deg=4.0, timeout=8.0):
                 # need CW
                 rotate_clockwise(rot_speed)
             time.sleep(0.05)
+        print(f"INFO: rotate_in_place reached target (now={tracker_z.get_heading():.2f})")
         return True
     finally:
         motors.stop_all()
@@ -522,14 +525,23 @@ def api_turn_left():
     """
     # request immediate stop of any background sequence
     _stop_event.set()
-    # small sleep to allow any running thread to notice the stop and exit
-    time.sleep(0.05)
+    # wait briefly for a running collect thread to exit and release the lock
+    wait_start = time.time()
+    while time.time() - wait_start < 1.5:
+        # try to acquire the collect lock briefly to test if it's held
+        acquired = _collect_lock.acquire(blocking=False)
+        if acquired:
+            # no collector was running (or it released): release and continue
+            _collect_lock.release()
+            break
+        time.sleep(0.05)
+
+    # clear stop so the rotation helper won't immediately abort
+    _stop_event.clear()
     try:
         ok = _rotate_in_place(-90.0, rot_speed=0.45, tol_deg=4.0, timeout=8.0)
     except Exception:
         ok = False
-    # clear stop so normal operations can resume
-    _stop_event.clear()
     return jsonify({'status': 'ok' if ok else 'failed'})
 
 
@@ -538,12 +550,18 @@ def api_turn_right():
     """Immediately rotate +90 degrees (right/CW) without backing up.
     """
     _stop_event.set()
-    time.sleep(0.05)
+    wait_start = time.time()
+    while time.time() - wait_start < 1.5:
+        acquired = _collect_lock.acquire(blocking=False)
+        if acquired:
+            _collect_lock.release()
+            break
+        time.sleep(0.05)
+    _stop_event.clear()
     try:
         ok = _rotate_in_place(90.0, rot_speed=0.45, tol_deg=4.0, timeout=8.0)
     except Exception:
         ok = False
-    _stop_event.clear()
     return jsonify({'status': 'ok' if ok else 'failed'})
 
 
