@@ -166,7 +166,7 @@ class HeadingTracker:
     """Integrate gyro z-rate to produce a heading in degrees within [0, 360).
     Supports reset() to declare the current heading as 0.
     """
-    def __init__(self, gyro_sensor, poll_interval=0.05, sign=1, axis='z'):
+    def __init__(self, gyro_sensor, poll_interval=0.05, sign=1, axis='z', min_rate_thresh=0.5):
         self.gyro = gyro_sensor
         self.poll = poll_interval
         self._raw = 0.0
@@ -175,6 +175,8 @@ class HeadingTracker:
         self.sign = 1 if sign >= 0 else -1
         # axis: 'x','y' or 'z' - which gyro axis to integrate
         self.axis = axis.lower()
+        # minimum absolute gyro rate (deg/s) required to integrate; prevents slow drift from noise
+        self.min_rate_thresh = float(min_rate_thresh)
         self._lock = threading.Lock()
         self._running = False
         self._thread = None
@@ -203,7 +205,21 @@ class HeadingTracker:
                 # fallback to z
                 rate = self.gyro.get_gyro('z')
             else:
-                rate = getter()
+                try:
+                    rate = getter()
+                except Exception:
+                    rate = 0.0
+
+            # if gyro appears to be a mock/unavailable, or rate is tiny, skip integration to avoid drift
+            is_gyro_mock = (getattr(self.gyro, 'dev', None) is None) and (not getattr(self.gyro, '_use_smbus', False))
+            if rate is None:
+                rate = 0.0
+            if is_gyro_mock or abs(rate) < self.min_rate_thresh:
+                # nothing to integrate; just sleep and continue
+                time.sleep(max(0.0, self.poll - 0.0))
+                last = time.time()
+                continue
+
             # apply configurable sign so sensor wrapper stays untouched
             delta = (self.sign * rate) * dt
             with self._lock:
