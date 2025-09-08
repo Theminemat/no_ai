@@ -33,3 +33,4 @@ try:
         time.sleep(1.0)
 finally:
     GPIO.cleanup()
+    
