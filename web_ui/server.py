@@ -101,11 +101,13 @@ class HeadingTracker:
     """Integrate gyro z-rate to produce a heading in degrees within [0, 360).
     Supports reset() to declare the current heading as 0.
     """
-    def __init__(self, gyro_sensor, poll_interval=0.05):
+    def __init__(self, gyro_sensor, poll_interval=0.05, sign=1):
         self.gyro = gyro_sensor
         self.poll = poll_interval
         self._raw = 0.0
         self._offset = 0.0
+        # sign: 1 keeps gyro sign as-is, -1 inverts rotation direction used for integration
+        self.sign = 1 if sign >= 0 else -1
         self._lock = threading.Lock()
         self._running = False
         self._thread = None
@@ -129,7 +131,8 @@ class HeadingTracker:
             dt = now - last
             last = now
             rate = self.gyro.get_gyro_z()  # deg/s
-            delta = rate * dt
+            # apply configurable sign so sensor wrapper stays untouched
+            delta = (self.sign * rate) * dt
             with self._lock:
                 self._raw = fmod((self._raw + delta), 360.0)
                 if self._raw < 0:
