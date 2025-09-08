@@ -322,9 +322,9 @@ def ecken_handling_sequence():
     The function respects _stop_event and ensures motors are stopped on exit.
     """
     try:
-    speed = 0.8
-    # use a dedicated reverse speed (can be higher than forward base speed)
-    reverse_speed = 1.0
+        speed = 0.8
+        # use a dedicated reverse speed (can be higher than forward base speed)
+        reverse_speed = 1.0
 
         # forward: set left/right motors forward
         def forward(s):
