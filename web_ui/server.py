@@ -308,6 +308,51 @@ class MotorController:
 motors = MotorController()
 motors.stop_all()
 
+# Helper: rotate in place to a relative heading (degrees can be positive or negative).
+def _rotate_in_place(degrees, rot_speed=0.4, tol_deg=4.0, timeout=8.0):
+    """Rotate the robot in place by `degrees` (signed). Blocks until done or aborted.
+    Returns True on success, False if aborted via _stop_event or timeout.
+    """
+    # normalize target heading
+    start = tracker_z.get_heading()
+    target = (start + float(degrees)) % 360.0
+
+    def rotate_clockwise(s):
+        # left forward, right backward
+        motors.set_motor('front_left', s)
+        motors.set_motor('back_left', s)
+        motors.set_motor('front_right', -s)
+        motors.set_motor('back_right', -s)
+
+    def rotate_ccw(s):
+        rotate_clockwise(-s)
+
+    def shortest_angle_diff(a, b):
+        d = (b - a + 180.0) % 360.0 - 180.0
+        return d
+
+    start_t = time.time()
+    try:
+        while True:
+            if _stop_event.is_set():
+                motors.stop_all()
+                return False
+            now = tracker_z.get_heading()
+            diff = shortest_angle_diff(now, target)
+            if abs(diff) <= tol_deg:
+                break
+            # rotate towards target via shortest path
+            if diff > 0:
+                # need CCW
+                rotate_ccw(rot_speed)
+            else:
+                # need CW
+                rotate_clockwise(rot_speed)
+            time.sleep(0.05)
+        return True
+    finally:
+        motors.stop_all()
+
 # Worker to run the corner-handling sequence (ecken_handling)
 _collect_lock = threading.Lock()
 _stop_event = threading.Event()
@@ -467,6 +512,39 @@ def api_stop_motors():
     except Exception:
         pass
     return jsonify({'status': 'stopped'})
+
+
+@app.route('/api/turn_left', methods=['POST'])
+def api_turn_left():
+    """Immediately rotate -90 degrees (left/CCW) without backing up.
+    This will signal any running collect sequence to stop, perform the turn,
+    then return the result.
+    """
+    # request immediate stop of any background sequence
+    _stop_event.set()
+    # small sleep to allow any running thread to notice the stop and exit
+    time.sleep(0.05)
+    try:
+        ok = _rotate_in_place(-90.0, rot_speed=0.45, tol_deg=4.0, timeout=8.0)
+    except Exception:
+        ok = False
+    # clear stop so normal operations can resume
+    _stop_event.clear()
+    return jsonify({'status': 'ok' if ok else 'failed'})
+
+
+@app.route('/api/turn_right', methods=['POST'])
+def api_turn_right():
+    """Immediately rotate +90 degrees (right/CW) without backing up.
+    """
+    _stop_event.set()
+    time.sleep(0.05)
+    try:
+        ok = _rotate_in_place(90.0, rot_speed=0.45, tol_deg=4.0, timeout=8.0)
+    except Exception:
+        ok = False
+    _stop_event.clear()
+    return jsonify({'status': 'ok' if ok else 'failed'})
 
 
 @app.route('/api/start_collect', methods=['POST'])
