@@ -186,6 +186,7 @@ tracker.start()
 
 # Log sensor modes so it's obvious on startup whether real GPIO is used
 print(f'INFO: sensor_front mock={sensor_front.mock}, sensor_right mock={sensor_right.mock}, HAS_GPIO={HAS_GPIO}, HAS_MPU={HAS_MPU}')
+print(f'INFO: gyro mock={(gyro.dev is None)}')
 
 
 @app.route('/')
@@ -203,6 +204,12 @@ def api_status():
         right = sensor_right.get_distance_cm()
     except Exception:
         right = None
+    # get a live gyro rate (deg/s). Use try/except in case the sensor read fails
+    try:
+        gyro_rate = gyro.get_gyro_z()
+    except Exception:
+        gyro_rate = None
+
     heading = tracker.get_heading()
     return jsonify({
         'distance_front_cm': None if front is None else round(front, 1),
@@ -210,6 +217,10 @@ def api_status():
     'front_is_mock': bool(sensor_front.mock),
     'right_is_mock': bool(sensor_right.mock),
     'timestamp': int(time.time()),
+        'gyro_rate_dps': None if gyro_rate is None else round(gyro_rate, 2),
+        'gyro_is_mock': bool(gyro.dev is None),
+        # rotation direction as used for heading integration: sign * rate
+        'rotation_dir': (None if gyro_rate is None else ('CW' if (tracker.sign * gyro_rate) > 0 else ('CCW' if (tracker.sign * gyro_rate) < 0 else 'stopped'))),
         'heading_deg': round(heading, 2)
     })
 
