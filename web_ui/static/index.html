@@ -18,11 +18,7 @@
     <div class="row"><div>Front distance</div><div id="front" class="value">-- cm</div></div>
     <div class="row"><div>Right distance</div><div id="right" class="value">-- cm</div></div>
     <div class="row"><div>Heading</div><div id="heading" class="value">--°</div></div>
-    <div style="display:flex;gap:8px;margin-top:8px;">
-      <button id="reset">Reset heading to 0°</button>
-      <button id="calibrate">Calibrate gyro</button>
-      <button id="flip">Flip sign</button>
-    </div>
+    <div style="text-align:right;margin-top:8px;"><button id="reset">Reset heading to 0°</button></div>
   </div>
 
   <script>
@@ -43,17 +39,6 @@
     document.getElementById('reset').addEventListener('click', async ()=>{
       await fetch('/api/reset_heading', {method:'POST'});
       // immediate fetch to update UI
-      fetchStatus();
-    });
-    document.getElementById('calibrate').addEventListener('click', async ()=>{
-      await fetch('/api/calibrate', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({samples:200})});
-      fetchStatus();
-    });
-    document.getElementById('flip').addEventListener('click', async ()=>{
-      // flip sign: fetch current sign? easier to just toggle locally
-      await fetch('/api/set_sign', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({sign:-1})});
-      // small UX: flip back on second press by sending sign:1
-      // For simplicity, toggle on each press by reading current heading and inverting next time is manual.
       fetchStatus();
     });
 

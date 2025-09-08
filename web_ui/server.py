@@ -9,10 +9,16 @@ Features:
 
 This is designed to be safe to run on a non-RPi machine (mock sensors used when libraries are missing).
 """
-
 import time
+import threading
 from math import fmod
 from flask import Flask, jsonify, request, send_from_directory
+
+try:
+    from mpu6050 import mpu6050
+    HAS_MPU = True
+except Exception:
+    HAS_MPU = False
 
 try:
     import RPi.GPIO as GPIO
@@ -20,14 +26,34 @@ try:
 except Exception:
     HAS_GPIO = False
 
-try:
-    # try absolute import (works when running server.py directly)
-    from gyro_sensor import GyroSensor
-except Exception:
-    # fallback for package-style imports
-    from .gyro_sensor import GyroSensor
-
 app = Flask(__name__, static_folder="static", static_url_path="")
+
+
+class GyroSensor:
+    """Minimal wrapper around MPU6050 to provide Z-axis rotation rate in deg/s.
+    Falls back to a mock that returns a slow rotation for demo/testing.
+    """
+    def __init__(self, bus=1, address=0x68):
+        if HAS_MPU:
+            try:
+                self.dev = mpu6050(address)
+            except Exception:
+                self.dev = None
+        else:
+            self.dev = None
+
+    def get_gyro_z(self):
+        """Return gyroscope Z rate in degrees/second (positive = clockwise when looking down).
+        """
+        if self.dev:
+            try:
+                g = self.dev.get_gyro_data()  # returns x/y/z in deg/s
+                return g.get('z', 0.0)
+            except Exception:
+                return 0.0
+        # Mock: slow rotation oscillation
+        t = time.time()
+        return 10.0 * (0.5 - (t % 2) / 2)  # pseudo changing value
 
 
 class UltrasonicSensor:
@@ -71,24 +97,74 @@ class UltrasonicSensor:
         return distance
 
 
+class HeadingTracker:
+    """Integrate gyro z-rate to produce a heading in degrees within [0, 360).
+    Supports reset() to declare the current heading as 0.
+    """
+    def __init__(self, gyro_sensor, poll_interval=0.05, sign=1):
+        self.gyro = gyro_sensor
+        self.poll = poll_interval
+        self._raw = 0.0
+        self._offset = 0.0
+        # sign: 1 keeps gyro sign as-is, -1 inverts rotation direction used for integration
+        self.sign = 1 if sign >= 0 else -1
+        self._lock = threading.Lock()
+        self._running = False
+        self._thread = None
+
+    def start(self):
+        if self._running:
+            return
+        self._running = True
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        self._running = False
+        if self._thread:
+            self._thread.join(timeout=1.0)
+
+    def _run(self):
+        last = time.time()
+        while self._running:
+            now = time.time()
+            dt = now - last
+            last = now
+            rate = self.gyro.get_gyro_z()  # deg/s
+            # apply configurable sign so sensor wrapper stays untouched
+            delta = (self.sign * rate) * dt
+            with self._lock:
+                self._raw = fmod((self._raw + delta), 360.0)
+                if self._raw < 0:
+                    self._raw += 360.0
+            time.sleep(max(0.0, self.poll - 0.0))
+
+    def get_heading(self):
+        with self._lock:
+            h = (self._raw - self._offset) % 360.0
+            if h < 0:
+                h += 360.0
+            return h
+
+    def reset(self):
+        with self._lock:
+            # make current raw heading become 0
+            self._offset = self._raw
+
+
 # Instantiate sensors using BCM pin numbers from your pin map (see raspberry-pins.txt)
-# GyroSensor arguments: address=0x68, use_raw_lsb=False by default
-gyro = GyroSensor(use_raw_lsb=False, mock=False, calibrate_on_init=False)
+gyro = GyroSensor()
 sensor_front = UltrasonicSensor(trig_pin=15, echo_pin=14)  # front TRIG=BCM15, ECHO=BCM14
 sensor_right = UltrasonicSensor(trig_pin=23, echo_pin=24)  # right TRIG=BCM23, ECHO=BCM24
 
-# Start gyro integration thread
-gyro.start()
-
+# Invert gyro sign to match physical orientation of the sensor.
+tracker = HeadingTracker(gyro, sign=-1)
+tracker.start()
 
 
 @app.route('/')
 def index():
     return send_from_directory(app.static_folder, 'index.html')
-
-
-# runtime sign multiplier to flip rotation sense when needed
-GYRO_SIGN = 1
 
 
 @app.route('/api/status')
@@ -101,48 +177,18 @@ def api_status():
         right = sensor_right.get_distance_cm()
     except Exception:
         right = None
-
-    # ensure we update integration once before reading
-    try:
-        angle = gyro.update_angle()
-    except Exception:
-        angle = gyro.get_current_angle()
-
-    # apply sign multiplier for user convenience
-    angle_signed = GYRO_SIGN * angle
-    heading = (angle_signed - gyro.heading_offset) % 360.0
+    heading = tracker.get_heading()
     return jsonify({
         'distance_front_cm': None if front is None else round(front, 1),
         'distance_right_cm': None if right is None else round(right, 1),
-        'angle_z_deg': round(angle_signed, 2),
-        'heading_deg': round(heading, 2),
-        'gyro_calibrated': gyro.is_calibrated
+        'heading_deg': round(heading, 2)
     })
 
 
 @app.route('/api/reset_heading', methods=['POST'])
 def api_reset_heading():
-    gyro.reset_angle()
-    gyro.calibrate_heading()
+    tracker.reset()
     return jsonify({'status': 'ok', 'heading_deg': 0.0})
-
-
-@app.route('/api/calibrate', methods=['POST'])
-def api_calibrate():
-    # optional JSON payload: { samples: int }
-    data = request.get_json(silent=True) or {}
-    samples = int(data.get('samples', 200))
-    offset = gyro.calibrate(samples=samples)
-    return jsonify({'status': 'ok', 'gyro_z_offset_deg_per_s': offset})
-
-
-@app.route('/api/set_sign', methods=['POST'])
-def api_set_sign():
-    global GYRO_SIGN
-    data = request.get_json(silent=True) or {}
-    sign = int(data.get('sign', 1))
-    GYRO_SIGN = 1 if sign >= 0 else -1
-    return jsonify({'status': 'ok', 'sign': GYRO_SIGN})
 
 
 if __name__ == '__main__':
