@@ -255,7 +255,7 @@ sensor_right = UltrasonicSensor(trig_pin=23, echo_pin=24)  # right TRIG=BCM23, E
 # Keep only a single HeadingTracker for the Z axis (heading) as requested.
 # Apply a stronger drift correction (-0.5 deg/s) and allow correction even when
 # the measured rate is very small by setting min_rate_thresh=0.0.
-tracker_z = HeadingTracker(gyro, sign=-1, axis='z', drift_correction_dps=-0.45, min_rate_thresh=0.0)
+tracker_z = HeadingTracker(gyro, sign=-1, axis='z', drift_correction_dps=-0.49, min_rate_thresh=0.0)
 tracker_z.start()
 
 # Log sensor modes so it's obvious on startup whether real GPIO is used
