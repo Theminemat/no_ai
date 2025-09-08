@@ -326,6 +326,7 @@ motors.stop_all()
 
 # Worker to run the corner-handling sequence (ecken_handling)
 _collect_lock = threading.Lock()
+_stop_event = threading.Event()
 def ecken_handling_sequence():
     """Drive forward at 60% until front sensor <=5cm, then continue 1s, then:
     - rotate CW 1s
@@ -356,6 +357,8 @@ def ecken_handling_sequence():
         # 1) Drive forward until front sensor sees <=5cm
         forward(speed)
         while True:
+            if _stop_event.is_set():
+                return
             d = sensor_front.get_distance_cm()
             if d is not None and d <= 5.0:
                 break
@@ -368,19 +371,34 @@ def ecken_handling_sequence():
 
         # 2) rotate clockwise 1s
         rotate_clockwise(speed)
-        time.sleep(1.0)
+        start = time.time()
+        while time.time() - start < 1.0:
+            if _stop_event.is_set():
+                motors.stop_all()
+                return
+            time.sleep(0.02)
         motors.stop_all()
         time.sleep(0.1)
 
         # 3) backward 1s
         forward(-speed)
-        time.sleep(1.0)
+        start = time.time()
+        while time.time() - start < 1.0:
+            if _stop_event.is_set():
+                motors.stop_all()
+                return
+            time.sleep(0.02)
         motors.stop_all()
         time.sleep(0.1)
 
         # 4) rotate counter-clockwise 1s
         rotate_ccw(speed)
-        time.sleep(1.0)
+        start = time.time()
+        while time.time() - start < 1.0:
+            if _stop_event.is_set():
+                motors.stop_all()
+                return
+            time.sleep(0.02)
         motors.stop_all()
         time.sleep(0.1)
 
@@ -397,6 +415,9 @@ def ecken_handling_sequence():
         max_timeout = 5.0
         start_t = time.time()
         while True:
+            if _stop_event.is_set():
+                motors.stop_all()
+                return
             h = tracker_z.get_heading()
             diff = shortest_angle_diff(h, target)
             if abs(diff) <= 5.0:
@@ -420,6 +441,17 @@ def ecken_handling_sequence():
         motors.stop_all()
     finally:
         motors.stop_all()
+
+
+@app.route('/api/stop_motors', methods=['POST'])
+def api_stop_motors():
+    # set the stop event and immediately stop motors
+    _stop_event.set()
+    try:
+        motors.stop_all()
+    except Exception:
+        pass
+    return jsonify({'status': 'stopped'})
 
 
 @app.route('/api/start_collect', methods=['POST'])

@@ -20,7 +20,7 @@
   <div class="row"><div>Heading Z</div><div id="heading_z" class="value">--°</div></div>
   <div class="row"><div>Last update</div><div id="updated" class="value">--</div></div>
   <div style="text-align:right;margin-top:8px;"><button id="reset">Reset heading to 0°</button></div>
-  <div style="text-align:right;margin-top:8px;"><button id="start-collect">Start collecting</button></div>
+  <div style="text-align:right;margin-top:8px;"><button id="start-collect">Start collecting</button> <button id="stop-collect">STOP</button></div>
   </div>
 
   <script>
@@ -59,6 +59,15 @@
         alert('Started: ' + (j.status||'ok'));
       }catch(e){
         alert('Failed to start');
+      }
+    });
+    document.getElementById('stop-collect').addEventListener('click', async ()=>{
+      try{
+        const r = await fetch('/api/stop_motors', {method:'POST'});
+        const j = await r.json();
+        alert('Stopped: ' + (j.status||'ok'));
+      }catch(e){
+        alert('Failed to stop');
       }
     });
 
