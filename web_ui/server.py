@@ -11,6 +11,8 @@ This is designed to be safe to run on a non-RPi machine (mock sensors used when 
 """
 import time
 import threading
+import random
+import math
 from math import fmod
 from flask import Flask, jsonify, request, send_from_directory
 
@@ -45,6 +47,10 @@ class GyroSensor:
         else:
             print("WARNING: MPU6050 library not found. Using mock sensor.")
             self.dev = None
+            # Mock parameters to make demo gyro more realistic and variable
+            self._gyro_phase = random.random() * 2.0 * math.pi
+            self._gyro_amp = 20.0  # deg/s peak
+            self._gyro_freq = 0.08  # Hz (slow rotation)
 
     def get_gyro_z(self):
         """Return gyroscope Z rate in degrees/second (positive = clockwise when looking down).
@@ -55,9 +61,9 @@ class GyroSensor:
                 return g.get('z', 0.0)
             except Exception:
                 return 0.0
-        # Mock: slow rotation oscillation
+        # Mock: slow sinusoidal rotation with small noise
         t = time.time()
-        return 10.0 * (0.5 - (t % 2) / 2)  # pseudo changing value
+        return self._gyro_amp * math.sin(2.0 * math.pi * self._gyro_freq * t + self._gyro_phase) + random.uniform(-1.0, 1.0)
 
 
 class UltrasonicSensor:
@@ -72,11 +78,24 @@ class UltrasonicSensor:
             GPIO.setmode(GPIO.BCM)
             GPIO.setup(self.trig, GPIO.OUT)
             GPIO.setup(self.echo, GPIO.IN)
+        else:
+            # Per-instance demo parameters so multiple mock sensors don't return identical values
+            # Use pin numbers when available to derive deterministic differences
+            seed = (int(self.trig or 0) * 37) ^ (int(self.echo or 0) * 17)
+            rnd = random.Random(seed)
+            self._base = 25.0 + (rnd.random() * 20.0)  # base distance between ~25..45 cm
+            self._amp = 6.0 + (rnd.random() * 8.0)     # amplitude between ~6..14 cm
+            self._freq = 0.08 + (rnd.random() * 0.12)  # frequency between ~0.08..0.2 Hz
+            self._phase = rnd.random() * 2.0 * math.pi
+            self._noise = 0.3 + rnd.random() * 1.2     # small random noise
 
     def get_distance_cm(self):
         if self.mock:
-            # simple mock value that changes slowly
-            return 30.0 + 10.0 * (0.5 - (time.time() % 3) / 3)
+            # produce a smooth sinusoidal distance plus small random noise
+            t = time.time()
+            val = self._base + self._amp * math.sin(2.0 * math.pi * self._freq * t + self._phase)
+            val += random.uniform(-self._noise, self._noise)
+            return max(0.0, val)
 
         # Send trigger
         GPIO.output(self.trig, False)
