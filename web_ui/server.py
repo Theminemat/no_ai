@@ -177,12 +177,12 @@ class HeadingTracker:
         self.axis = axis.lower()
         # minimum absolute gyro rate (deg/s) required to integrate; prevents slow drift from noise
         self.min_rate_thresh = float(min_rate_thresh)
-    self._lock = threading.Lock()
-    self._running = False
-    self._thread = None
-    # apply a small constant correction (deg/s) to counteract slow gyro drift
-    # default is -0.1 deg/s (subtract 0.1 degrees every second)
-    self.drift_correction_dps = float(drift_correction_dps)
+        self._lock = threading.Lock()
+        self._running = False
+        self._thread = None
+        # apply a small constant correction (deg/s) to counteract slow gyro drift
+        # default is -0.1 deg/s (subtract 0.1 degrees every second)
+        self.drift_correction_dps = float(drift_correction_dps)
 
     def start(self):
         if self._running:
