@@ -339,14 +339,19 @@ def ecken_handling_sequence():
     - rotate CW 1s
     - drive backward 1s
     - rotate CCW 1s
-    - compute target heading = current_heading - 90 and rotate to it
+    - compute target heading = start_heading - 90 and rotate to it
     - then continue straight (function exits, caller may loop)
     """
     try:
         speed = 0.6
+
         # current desired course heading (deg). We'll set this to the
         # tracker heading when starting forward motion and update it after rotations.
         course_heading = tracker_z.get_heading()
+        # remember the heading at the moment this sequence started so we can
+        # rotate relative to it later (start_heading - 90°)
+        start_heading = course_heading
+
         # forward: set left/right motors forward
         def forward(s):
             motors.set_motor('front_left', s)
@@ -484,15 +489,10 @@ def ecken_handling_sequence():
         motors.stop_all()
         time.sleep(0.1)
 
-        # 5) rotate to absolute heading 90°; use the opposite rotation direction
-        target = 90.0
+        # 5) rotate to absolute heading (start_heading - 90°); use the opposite rotation direction
+        target = (start_heading - 90.0) % 360.0
 
-        # helper: shortest signed difference b - a in degrees (-180, 180]
-        def shortest_angle_diff(a, b):
-            d = (b - a + 180.0) % 360.0 - 180.0
-            return d
-
-        # rotate towards absolute 90°, but force the opposite direction compared to shortest-path
+        # rotate towards target, but force the opposite direction compared to shortest-path
         max_timeout = 5.0
         start_t = time.time()
         while True:
@@ -501,7 +501,7 @@ def ecken_handling_sequence():
                 return
             h = tracker_z.get_heading()
             diff = shortest_angle_diff(h, target)
-            # stop once we are close enough to 90° (tolerance 5°)
+            # stop once we are close enough to target (tolerance 5°)
             if abs(diff) <= 5.0:
                 break
             # invert rotation direction: if diff > 0 we would normally rotate CCW, so we rotate CW
