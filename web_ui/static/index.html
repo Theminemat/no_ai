@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RPi Sensors UI</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; }
+    .card { border: 1px solid #ddd; padding: 16px; border-radius: 8px; max-width: 480px; }
+    .value { font-size: 2em; font-weight: bold; }
+    button { padding: 8px 12px; font-size: 1em; }
+    .row { display:flex; justify-content:space-between; margin-bottom:12px; }
+  </style>
+</head>
+<body>
+  <h1>Raspberry Pi Sensors</h1>
+  <div class="card">
+    <div class="row"><div>Front distance</div><div id="front" class="value">-- cm</div></div>
+    <div class="row"><div>Right distance</div><div id="right" class="value">-- cm</div></div>
+    <div class="row"><div>Heading</div><div id="heading" class="value">--°</div></div>
+    <div style="text-align:right;margin-top:8px;"><button id="reset">Reset heading to 0°</button></div>
+  </div>
+
+  <script>
+    async function fetchStatus(){
+      try{
+        const r = await fetch('/api/status');
+        const j = await r.json();
+        document.getElementById('front').textContent = (j.distance_front_cm==null)?'N/A':j.distance_front_cm + ' cm';
+        document.getElementById('right').textContent = (j.distance_right_cm==null)?'N/A':j.distance_right_cm + ' cm';
+        document.getElementById('heading').textContent = (typeof j.heading_deg === 'number')? j.heading_deg.toFixed(2) + '°' : 'N/A';
+      }catch(e){
+        document.getElementById('front').textContent = 'err';
+        document.getElementById('right').textContent = 'err';
+        document.getElementById('heading').textContent = 'err';
+      }
+    }
+
+    document.getElementById('reset').addEventListener('click', async ()=>{
+      await fetch('/api/reset_heading', {method:'POST'});
+      // immediate fetch to update UI
+      fetchStatus();
+    });
+
+    // poll every 300ms
+    fetchStatus();
+    setInterval(fetchStatus, 300);
+  </script>
+</body>
+</html>

@@ -1,0 +1,70 @@
+Raspberry Pi - Pinübersicht (physische Header-Pins + BCM), ergänzt und konsolidiert
+
+Hinweis:
+- Diese Datei zeigt die *aktuelle* Pin‑Zuordnung wie sie im Code verwendet wird
+	(siehe `mecanum_server.py`, `motor_test_pi.py`, `ultrasonic_sensor.py`, `gyro_sensor.py`).
+- Oben sind jeweils die BCM‑Nummern (GPIOx) und die physischen Header‑Pins (pin#).
+
+Standard 40‑pin Header (wichtig für physische pin#):
+	BCM2  = pin3   | BCM3  = pin5   | BCM4  = pin7   | BCM17 = pin11
+	BCM27 = pin13  | BCM22 = pin15  | BCM10 = pin19  | BCM9  = pin21
+	BCM11 = pin23  | BCM8  = pin24  | BCM7  = pin26  | BCM0  = pin27
+	BCM1  = pin28  | BCM5  = pin29  | BCM6  = pin31  | BCM12 = pin32
+	BCM13 = pin33  | BCM19 = pin35  | BCM16 = pin36  | BCM26 = pin37
+	BCM20 = pin38  | BCM21 = pin40
+
+
+1) Motoren (L298N) - endgültige Zuordnung aus Code
+	 - Motorsteuerung verwendet BCM (GPIOx) in den Scripts. PWM wird pro Pin gestartet.
+
+	 Front Left  (Vorder links)
+		 - A: BCM13  (phys. pin33)
+		 - B: BCM6   (phys. pin31)
+
+	 Back Left   (Hint. links)
+		 - A: BCM26  (phys. pin37)
+		 - B: BCM19  (phys. pin35)
+
+	 Front Right (Vorder rechts)
+		 - A: BCM27  (phys. pin13)
+		 - B: BCM22  (phys. pin15)
+
+	 Back Right  (Hint. rechts)
+		 - A: BCM4   (phys. pin7)
+		 - B: BCM17  (phys. pin11)
+
+	 Kommentar:
+	 - Diese Zuordnung ist konsistent mit `MecanumRobot.self.pins` in `mecanum_server.py`
+		 und mit `MotorTester.motors` in `motor_test_pi.py`.
+	 - Falls du die physische Verkabelung änderst, passe die BCM‑Werte in `mecanum_server.py` an.
+
+2) Ultraschall‑Sensoren (HC‑SR04)
+	 - Rechter Sensor (im Code: `ultrasonic_sensor_right`)
+		 - TRIG = BCM23 (phys. pin16)
+		 - ECHO = BCM24 (phys. pin18)
+	 - Vorderer Sensor (im Code: `ultrasonic_sensor_front`)
+		 - TRIG = BCM15 (phys. pin10)
+		 - ECHO = BCM14 (phys. pin8)
+
+	 Hinweis: am Dateikopf standen "echo 18 / trig 16" — das sind die physischen Header‑Pins
+	 und passen zu BCM24 (pin18) und BCM23 (pin16) (also konsistent mit dem Code).
+
+3) Gyro (MPU6050, I2C)
+	 - SDA = BCM2  (phys. pin3)
+	 - SCL = BCM3  (phys. pin5)
+	 - VCC = 3.3V (phys. pin1 oder pin17)  (prüfe Sensor‑Board: manche haben 5V tolerant)
+	 - GND = Ground (phys. pin6/9/14/...)
+
+	 Im Code: `gyro_sensor.py` verwendet I2C Adresse 0x68 via smbus/smbus2.
+
+4) Kurze Hardware‑Legende / Troubleshooting
+	 - In Python‑Code immer BCM (GPIOx) nutzen; `GPIO.setmode(GPIO.BCM)` ist gesetzt.
+	 - Physische Header‑Pins sind nur zur Verdrahtung hilfreich; beim Ändern die BCM Werte anpassen.
+	 - Wenn RPi.GPIO nicht installiert, läuft die Software im Mock‑Mode (siehe Konsolenhinweis).
+
+5) Änderungslog / Hinweise
+	 - Diese Datei wurde ergänzt, um Code‑Werte (BCM) und physische Header‑Pins zusammenzufassen.
+	 - Wenn du möchtest, kann ich die Datei um eine einfache ASCII‑Skizze des Headers erweitern
+		 oder ein `/pins` HTTP‑Endpoint im Server hinzufügen, das die aktuelle Zuordnung zurückgibt.
+
+--- Ende der Pin‑Übersicht ---
