@@ -15,6 +15,7 @@ import random
 import math
 from math import fmod
 from flask import Flask, jsonify, request, send_from_directory
+from drive_pattern import clean_area_zigzag
 
 app = Flask(__name__, static_folder="static", static_url_path="")
 
@@ -579,6 +580,16 @@ def api_start_collect():
     t = threading.Thread(target=_worker, daemon=True)
     t.start()
     return jsonify({'status': 'started'})
+
+
+@app.route('/api/clean_zigzag', methods=['POST'])
+def api_clean_zigzag():
+    # Starte das Zickzack-Muster (blockierend, Demo!)
+    try:
+        clean_area_zigzag()
+        return jsonify({'status': 'ok', 'msg': 'Zickzack-Reinigung abgeschlossen'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'msg': str(e)})
 
 
 @app.route('/')
