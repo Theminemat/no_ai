@@ -18,6 +18,7 @@
   <div class="row"><div>Front distance <small id="front-badge" style="color:#666;font-weight:normal">(unknown)</small></div><div id="front" class="value">-- cm</div></div>
   <div class="row"><div>Right distance <small id="right-badge" style="color:#666;font-weight:normal">(unknown)</small></div><div id="right" class="value">-- cm</div></div>
   <div class="row"><div>Heading Z</div><div id="heading_z" class="value">--°</div></div>
+  <div class="row"><div>Sensor Cooldown</div><div id="cooldown" class="value">--</div></div>
   <div class="row"><div>Last update</div><div id="updated" class="value">--</div></div>
   <div style="text-align:right;margin-top:8px;"><button id="reset">Reset heading to 0°</button></div>
   <div style="text-align:right;margin-top:8px;"><button id="start-collect">Start collecting</button> <button id="stop-collect">STOP</button></div>
@@ -44,10 +45,20 @@
           const d = new Date(j.timestamp * 1000);
           document.getElementById('updated').textContent = d.toLocaleTimeString();
         }
-      }catch(e){
+      // Cooldown-Anzeige
+      if (typeof j.auto_turn_cooldown === 'number' && j.auto_turn_cooldown > 0) {
+        document.getElementById('cooldown').textContent = j.auto_turn_cooldown.toFixed(1) + 's';
+        document.getElementById('cooldown').style.color = '#c00';
+      } else {
+        document.getElementById('cooldown').textContent = 'bereit';
+        document.getElementById('cooldown').style.color = '#070';
+      }
+    }catch(e){
         document.getElementById('front').textContent = 'err';
         document.getElementById('right').textContent = 'err';
         document.getElementById('heading').textContent = 'err';
+        document.getElementById('cooldown').textContent = '--';
+        document.getElementById('cooldown').style.color = '#666';
       }
     }
 

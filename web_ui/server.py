@@ -613,17 +613,21 @@ def api_status():
     # collect heading (Z axis) from the tracker
     hz = tracker_z.get_heading()
 
+    # Cooldown für automatische Drehung anzeigen (Restzeit in Sekunden)
+    global _last_auto_turn_time
+    cooldown_left = max(0.0, 5.0 - (time.time() - _last_auto_turn_time))
     return jsonify({
         'distance_front_cm': None if front is None else round(front, 1),
         'distance_right_cm': None if right is None else round(right, 1),
-    'front_is_mock': bool(sensor_front.mock),
-    'right_is_mock': bool(sensor_right.mock),
-    'timestamp': int(time.time()),
-    'gyro_rate_z_dps': None if gz is None else round(gz, 2),
-    'gyro_is_mock': bool(gyro.dev is None),
-    # rotation direction (Z axis)
-    'rotation_dir_z': (None if gz is None else ('CW' if (tracker_z.sign * gz) > 0 else ('CCW' if (tracker_z.sign * gz) < 0 else 'stopped'))),
-    'heading_z_deg': round(hz, 2)
+        'front_is_mock': bool(sensor_front.mock),
+        'right_is_mock': bool(sensor_right.mock),
+        'timestamp': int(time.time()),
+        'gyro_rate_z_dps': None if gz is None else round(gz, 2),
+        'gyro_is_mock': bool(gyro.dev is None),
+        # rotation direction (Z axis)
+        'rotation_dir_z': (None if gz is None else ('CW' if (tracker_z.sign * gz) > 0 else ('CCW' if (tracker_z.sign * gz) < 0 else 'stopped'))),
+        'heading_z_deg': round(hz, 2),
+        'auto_turn_cooldown': round(cooldown_left, 1)
     })
 
 
