@@ -356,9 +356,12 @@ def _rotate_in_place(degrees, rot_speed=0.4, tol_deg=4.0, timeout=8.0):
     finally:
         motors.stop_all()
 
+
 # Worker to run the corner-handling sequence (ecken_handling)
 _collect_lock = threading.Lock()
 _stop_event = threading.Event()
+# Cooldown-Mechanismus für automatische Drehung (5s)
+_last_auto_turn_time = 0.0
 def ecken_handling_sequence():
     """Simplified corner handling: when a front obstacle is detected while
     driving forward, perform exactly three steps:
@@ -369,10 +372,10 @@ def ecken_handling_sequence():
 
     The function respects _stop_event and ensures motors are stopped on exit.
     """
+    global _last_auto_turn_time
     try:
         speed = 0.6
 
-        # forward: set left/right motors forward
         def forward(s):
             motors.set_motor('front_left', s)
             motors.set_motor('back_left', s)
@@ -380,7 +383,6 @@ def ecken_handling_sequence():
             motors.set_motor('back_right', s)
 
         def rotate_clockwise(s):
-            # clockwise: left forward, right backward
             motors.set_motor('front_left', s)
             motors.set_motor('back_left', s)
             motors.set_motor('front_right', -s)
@@ -389,12 +391,10 @@ def ecken_handling_sequence():
         def rotate_ccw(s):
             rotate_clockwise(-s)
 
-        # helper: shortest signed difference b - a in degrees (-180, 180]
         def shortest_angle_diff(a, b):
             d = (b - a + 180.0) % 360.0 - 180.0
             return d
 
-        # helper to choose rotation direction towards a target using shortest path
         def rotate_towards_target(target, rot_speed=0.4, tol_deg=5.0, timeout=5.0):
             start_t = time.time()
             while True:
@@ -405,13 +405,9 @@ def ecken_handling_sequence():
                 diff = shortest_angle_diff(h, target)
                 if abs(diff) <= tol_deg:
                     break
-                # User requested: rotate in the opposite direction to the shortest-path.
-                # Normally: diff > 0 -> target is CCW so rotate CCW. We invert that.
                 if diff > 0:
-                    # shortest path would be CCW -> instead rotate CW
                     rotate_clockwise(rot_speed)
                 else:
-                    # shortest path would be CW -> instead rotate CCW
                     rotate_ccw(rot_speed)
                 time.sleep(0.05)
                 motors.stop_all()
@@ -420,7 +416,6 @@ def ecken_handling_sequence():
             motors.stop_all()
             return True
 
-        # heading control: set the target course to current tracker heading
         course_heading = tracker_z.get_heading()
 
         def set_course_to_current():
@@ -430,16 +425,12 @@ def ecken_handling_sequence():
             except Exception:
                 pass
 
-        # apply a simple proportional heading controller while driving.
-        # speed: base speed in [-1,1]. Uses motors.set_motor to apply differential steering.
         def apply_heading_hold(speed, kp=0.02):
             try:
                 cur = tracker_z.get_heading()
             except Exception:
                 cur = course_heading
-            # error: target - current (signed)
             err = shortest_angle_diff(cur, course_heading)
-            # correction is added to left, subtracted from right
             corr = kp * err
             left = max(-1.0, min(1.0, speed + corr))
             right = max(-1.0, min(1.0, speed - corr))
@@ -447,14 +438,12 @@ def ecken_handling_sequence():
             motors.set_motor('back_left', left)
             motors.set_motor('front_right', right)
             motors.set_motor('back_right', right)
-        # Repeat the whole sequence until stopped: drive forward until obstacle,
-        # execute the corner maneuver, rotate to the new course, then continue driving.
+
         while True:
             if _stop_event.is_set():
                 motors.stop_all()
                 return
 
-            # record the heading when this sequence iteration begins
             start_heading = tracker_z.get_heading()
             course_heading = start_heading
 
@@ -472,6 +461,13 @@ def ecken_handling_sequence():
             # brief stop before executing the three-step maneuver
             motors.stop_all()
             time.sleep(0.1)
+
+            # COOLDOWN: Prüfen, ob seit letzter automatischer Drehung 5s vergangen sind
+            now = time.time()
+            if now - _last_auto_turn_time < 5.0:
+                print(f"INFO: Auto-Turn Cooldown aktiv, warte {5.0 - (now - _last_auto_turn_time):.1f}s")
+                time.sleep(5.0 - (now - _last_auto_turn_time))
+            _last_auto_turn_time = time.time()
 
             # 2) rotate clockwise 1s
             rotate_clockwise(speed)
@@ -499,8 +495,6 @@ def ecken_handling_sequence():
             target = (start_heading - 90.0) % 360.0
             rotate_towards_target(target, rot_speed=0.4, tol_deg=5.0, timeout=5.0)
 
-            # After the final rotation, continue the outer loop to drive forward again
-            # Give a short pause to let motors/heading settle before resuming
             time.sleep(0.15)
     finally:
         motors.stop_all()

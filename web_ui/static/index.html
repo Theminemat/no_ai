@@ -61,18 +61,14 @@
       try{
         const r = await fetch('/api/start_collect', {method:'POST'});
         const j = await r.json();
-        alert('Started: ' + (j.status||'ok'));
       }catch(e){
-        alert('Failed to start');
       }
     });
     document.getElementById('stop-collect').addEventListener('click', async ()=>{
       try{
         const r = await fetch('/api/stop_motors', {method:'POST'});
         const j = await r.json();
-        alert('Stopped: ' + (j.status||'ok'));
       }catch(e){
-        alert('Failed to stop');
       }
     });
 
