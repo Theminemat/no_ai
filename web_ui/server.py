@@ -334,6 +334,8 @@ def _rotate_in_place(degrees, rot_speed=0.4, tol_deg=4.0, timeout=8.0):
     start_t = time.time()
     print(f"INFO: rotate_in_place start: start_heading={start:.2f} target={target:.2f} degrees={degrees}")
     try:
+        initial = tracker_z.get_heading()
+        last_diff = None
         while True:
             if _stop_event.is_set():
                 motors.stop_all()
@@ -341,17 +343,20 @@ def _rotate_in_place(degrees, rot_speed=0.4, tol_deg=4.0, timeout=8.0):
                 return False
             now = tracker_z.get_heading()
             diff = shortest_angle_diff(now, target)
+            # Stoppen, wenn Ziel überschritten wurde (Richtungswechsel im diff)
+            if last_diff is not None and (diff == 0 or (last_diff > 0 and diff < 0) or (last_diff < 0 and diff > 0)):
+                print(f"INFO: rotate_in_place überschritten: now={now:.2f}, target={target:.2f}, diff={diff:.2f}")
+                break
             if abs(diff) <= tol_deg:
                 break
             # rotate towards target via shortest path
             if diff > 0:
-                # need CCW
                 rotate_ccw(rot_speed)
             else:
-                # need CW
                 rotate_clockwise(rot_speed)
+            last_diff = diff
             time.sleep(0.05)
-        print(f"INFO: rotate_in_place reached target (now={tracker_z.get_heading():.2f})")
+        print(f"INFO: rotate_in_place reached/überschritten target (now={tracker_z.get_heading():.2f})")
         return True
     finally:
         motors.stop_all()
