@@ -365,7 +365,7 @@ def _rotate_in_place(degrees, rot_speed=0.4, tol_deg=4.0, timeout=8.0):
 # Worker to run the corner-handling sequence (ecken_handling)
 _collect_lock = threading.Lock()
 _stop_event = threading.Event()
-# Cooldown-Mechanismus für automatische Drehung (5s)
+COOLDOWN_SECONDS = 8.0  # Cooldown-Mechanismus für automatische Drehung (8s)
 _last_auto_turn_time = 0.0
 def ecken_handling_sequence():
     """Simplified corner handling: when a front obstacle is detected while
@@ -467,11 +467,11 @@ def ecken_handling_sequence():
             motors.stop_all()
             time.sleep(0.1)
 
-            # COOLDOWN: Prüfen, ob seit letzter automatischer Drehung 5s vergangen sind
+            # COOLDOWN: Prüfen, ob seit letzter automatischer Drehung COOLDOWN_SECONDS vergangen sind
             now = time.time()
-            if now - _last_auto_turn_time < 5.0:
-                print(f"INFO: Auto-Turn Cooldown aktiv, warte {5.0 - (now - _last_auto_turn_time):.1f}s")
-                time.sleep(5.0 - (now - _last_auto_turn_time))
+            if now - _last_auto_turn_time < COOLDOWN_SECONDS:
+                print(f"INFO: Auto-Turn Cooldown aktiv, warte {COOLDOWN_SECONDS - (now - _last_auto_turn_time):.1f}s")
+                time.sleep(COOLDOWN_SECONDS - (now - _last_auto_turn_time))
             _last_auto_turn_time = time.time()
 
             # 2) rotate clockwise 1s
@@ -614,8 +614,8 @@ def api_status():
     hz = tracker_z.get_heading()
 
     # Cooldown für automatische Drehung anzeigen (Restzeit in Sekunden)
-    global _last_auto_turn_time
-    cooldown_left = max(0.0, 5.0 - (time.time() - _last_auto_turn_time))
+    global _last_auto_turn_time, COOLDOWN_SECONDS
+    cooldown_left = max(0.0, COOLDOWN_SECONDS - (time.time() - _last_auto_turn_time))
     return jsonify({
         'distance_front_cm': None if front is None else round(front, 1),
         'distance_right_cm': None if right is None else round(right, 1),
