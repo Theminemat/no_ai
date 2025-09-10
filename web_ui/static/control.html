@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Steuerung</title>
+  <style>
+    html,body{height:100%;margin:0}
+    .container{display:flex;height:100%;width:100%}
+    .btn{flex:1;display:flex;align-items:center;justify-content:center;font-size:6vw;font-weight:700;color:#fff;user-select:none;touch-action:none}
+    .left{background:#1e88e5}
+    .right{background:#43a047}
+    .btn:active{filter:brightness(0.9)}
+    /* ensure text remains large on very tall screens */
+    @media(min-aspect-ratio:1/1){.btn{font-size:8vh}}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div id="left" class="btn left">Links</div>
+    <div id="right" class="btn right">Rechts</div>
+  </div>
+
+  <script>
+    // Send POST to server endpoints. Use navigator.sendBeacon where appropriate for quick fire-and-forget.
+    async function postJson(path){
+      try{
+        const res = await fetch(path, {method:'POST'});
+        return res.ok;
+      }catch(e){
+        return false;
+      }
+    }
+
+    function attach(el, path){
+      let active = false;
+      const doPost = ()=>{ postJson(path); };
+      // support touch and mouse
+      el.addEventListener('touchstart', (e)=>{ e.preventDefault(); if(active) return; active=true; doPost(); }, {passive:false});
+      el.addEventListener('mousedown', (e)=>{ e.preventDefault(); if(active) return; active=true; doPost(); });
+      const end = ()=>{ active=false };
+      el.addEventListener('touchend', end);
+      el.addEventListener('mouseup', end);
+      el.addEventListener('mouseleave', end);
+      // also allow long-press repeated sends while held
+      let repeatTimer = null;
+      el.addEventListener('touchstart', ()=>{ repeatTimer = setInterval(doPost, 400); }, {passive:true});
+      el.addEventListener('mousedown', ()=>{ repeatTimer = setInterval(doPost, 400); });
+      el.addEventListener('touchend', ()=>{ clearInterval(repeatTimer); repeatTimer = null; });
+      el.addEventListener('mouseup', ()=>{ clearInterval(repeatTimer); repeatTimer = null; });
+    }
+
+    attach(document.getElementById('left'), '/api/turn_left');
+    attach(document.getElementById('right'), '/api/turn_right');
+
+    // Prevent accidental selection or scroll
+    document.body.addEventListener('touchmove', function(e){ e.preventDefault(); }, {passive:false});
+  </script>
+</body>
+</html>
