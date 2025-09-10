@@ -522,6 +522,13 @@ def api_turn_left():
     This will signal any running collect sequence to stop, perform the turn,
     then return the result.
     """
+    # remember if the collect (ecken_handling) sequence was running so we
+    # can resume it after the manual rotation
+    try:
+        was_collect_running = _collect_lock.locked()
+    except Exception:
+        was_collect_running = False
+
     # request immediate stop of any background sequence
     _stop_event.set()
     # wait briefly for a running collect thread to exit and release the lock
@@ -541,6 +548,20 @@ def api_turn_left():
         ok = _rotate_in_place(-90.0, rot_speed=0.45, tol_deg=4.0, timeout=8.0)
     except Exception:
         ok = False
+
+    # If the collect sequence was running before the manual turn, restart it
+    if was_collect_running:
+        # Try to start the collect worker (same logic as api_start_collect)
+        if _collect_lock.acquire(blocking=False):
+            def _worker():
+                try:
+                    ecken_handling_sequence()
+                finally:
+                    _collect_lock.release()
+
+            t = threading.Thread(target=_worker, daemon=True)
+            t.start()
+
     return jsonify({'status': 'ok' if ok else 'failed'})
 
 
@@ -548,6 +569,11 @@ def api_turn_left():
 def api_turn_right():
     """Immediately rotate +90 degrees (right/CW) without backing up.
     """
+    try:
+        was_collect_running = _collect_lock.locked()
+    except Exception:
+        was_collect_running = False
+
     _stop_event.set()
     wait_start = time.time()
     while time.time() - wait_start < 1.5:
@@ -561,6 +587,18 @@ def api_turn_right():
         ok = _rotate_in_place(90.0, rot_speed=0.45, tol_deg=4.0, timeout=8.0)
     except Exception:
         ok = False
+
+    if was_collect_running:
+        if _collect_lock.acquire(blocking=False):
+            def _worker():
+                try:
+                    ecken_handling_sequence()
+                finally:
+                    _collect_lock.release()
+
+            t = threading.Thread(target=_worker, daemon=True)
+            t.start()
+
     return jsonify({'status': 'ok' if ok else 'failed'})
 
 
