@@ -365,7 +365,7 @@ def _rotate_in_place(degrees, rot_speed=0.4, tol_deg=4.0, timeout=8.0):
 # Worker to run the corner-handling sequence (ecken_handling)
 _collect_lock = threading.Lock()
 _stop_event = threading.Event()
-COOLDOWN_SECONDS = 14.0  # Cooldown-Mechanismus für automatische Drehung (8s)
+COOLDOWN_SECONDS = 15.0  # Cooldown-Mechanismus für automatische Drehung (8s)
 _last_auto_turn_time = 0.0
 def ecken_handling_sequence():
     """Simplified corner handling: when a front obstacle is detected while
